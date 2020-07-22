@@ -655,6 +655,7 @@ def transposeTrackDataDictionary(matrix):
         resMatrix[:, index] = matrix[key]
     return resMatrix
 
+
 # Used to generate a data structure specifically used to generate a stacked bar plot
 def generateStackedBarPlotMatrixFromTracks(tracks):
     tracks = tracks.sort_values(by='gt', axis=1)  # arranges tracks in ascending order of GT cluster ID
@@ -709,7 +710,7 @@ def labelTracks(tracks):
     newTracks = pd.DataFrame()
     uniqueEventsIDs = tracks['eventId'].unique()
 
-#   Loop through every unique event
+    #   Loop through every unique event
     for eventId in uniqueEventsIDs:
 
         currEventTrack = tracks[tracks.eventId == eventId]  # Gets current event data
@@ -857,7 +858,6 @@ def generateTestGraphData(numNodes, edgeProbabilityMatrix, randSeed=None, should
 # n_classes = Number of classes
 
 def genModel(F, n_classes, learning_rate=0.2, l2_reg=5e-6, shouldUseBias=True):
-
     # Set multi-input size
     X_in = Input(shape=(F,))
     fltr_in = Input((None,), sparse=True)
@@ -1077,6 +1077,96 @@ def genDataForEvents(tracks, K=2, featuresList=None, altFeaturesSize=1, altFeatu
     return res
 
 
+# This is a special wrapper function for the generateSpectralDataFromTracks(), specific for generating data for the
+# different K experiment
+
+# Since the processing of K is the step that takes the longest time, this works by using the value from the
+# previous step to process the data for the next step, instead of calculating from the beginning
+
+# For example, if the matrix for K=8 has to be calculated, the adjacency matrix has to be
+# raised to the power of K-1
+
+# If data has to be processed for different K values, the above genDataForEvents()
+# would naively calculate A^(K-1) for each different K
+
+# This function aims to optimise that by sorting the kVals array in ascending order and then using the
+# value from the previous step to process the data for the next step, instead of calculating from the beginning
+
+# @Params
+
+# kVals: array of different K values
+
+# adjMatrixMode:
+# ones = connects all nodes with each other with equal weight(1)
+# zip = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
+# doca = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
+# identity = can collect information only from itself, i.e. there are no edges with other nodes.
+# random = creates a random adjacency matrix based on the randEdgeProbability
+
+# adjFilterKernel:
+# gaussian = Use Gaussian kernel - Only applied on zip and doca
+# inverse = Use Inverse kernel - Only applied on zip and doca
+
+# featuresList:
+# None - creates a list of ones of specified size
+# string array of column names - Uses the specified columns as the node features
+# random - creates a random array
+
+def genDataForDiffK(tracks, kVals, featuresList=None, altFeaturesSize=1, altFeaturesData=1, adjMatrixMode='ones',
+                    adjFilterKernel='gaussian', delta=1, randEdgeProbability=0.5, randNodeFeatProb=0.5):
+    res = {}
+    uniqueEvents = tracks['eventId'].unique()
+    filters = {}
+    # Loop through each event, and generate the required data structures for it
+    for eventId in uniqueEvents:
+        eventFilters = {}
+        event = tracks[tracks.eventId == eventId]
+
+        A, X, y, train_mask, test_mask, val_mask = generateSpectralDataFromTracks(event, featureList=featuresList,
+                                                                                  dataSplit=[100, 0, 0],
+                                                                                  adjMatrixMode=adjMatrixMode,
+                                                                                  adjFilterKernel=adjFilterKernel,
+                                                                                  delta=delta,
+                                                                                  altFeaturesSize=altFeaturesSize,
+                                                                                  altFeaturesData=altFeaturesData,
+                                                                                  randEdgeProbability=randEdgeProbability,
+                                                                                  randNodeFeatProb=randNodeFeatProb)
+
+        # For the below code to work, it is imperative for kVals to be sorted in ascending order
+        kVals.sort()
+
+        # Prepares the Adjacency matrix by multiplying it K-1 times with itself, as this pre-computational step is
+        # required for the SGC, and uses the aforementioned optimizations
+
+        fltr = localpooling_filter(A).astype('f4')
+        prevK = None
+        for K in kVals:
+            currK = K
+
+            if prevK is None:
+                for i in range(currK):
+                    fltr = fltr.dot(fltr)
+            else:
+                for i in range(currK - prevK):
+                    fltr = fltr.dot(fltr)
+
+            fltr.sort_indices()
+            prevK = currK
+            eventFilters[K] = fltr
+
+        dat = {'A': A, 'X': X.toarray(), 'y': y, 'fltr': None}
+        res[eventId] = dat
+        filters[eventId] = eventFilters
+
+    finalRes = {}
+    for K in kVals:
+        finalRes[K] = res[eventId].copy()
+        for eventId in uniqueEvents:
+            finalRes[K][eventId][fltr] = filters[eventId][K]
+
+    return finalRes
+
+
 # Loads events, processes them and removed global outliers, and returns as labelled tracks
 
 # @Params
@@ -1098,7 +1188,7 @@ def genDataForEvents(tracks, K=2, featuresList=None, altFeaturesSize=1, altFeatu
 def loadAndPrepareAllEvents(path, PVFileName, eventsToLoad=None):
     dataDir = Path(path)
 
-    sims, recTks = loadAllEvents(PVFileName, dataDir, eventsToLoad) # Loads all events
+    sims, recTks = loadAllEvents(PVFileName, dataDir, eventsToLoad)  # Loads all events
     allGTTracks = poolAllGTEventTracks(sims)  # Creates tracks from events and combines them into one dictionary
     allGT_ZIP = genZip(allGTTracks)  # Creates zip values for all tracks
     allGTTracks_ZIP = addZipToTracks(allGTTracks, allGT_ZIP)  # Adds zip values to dictionary

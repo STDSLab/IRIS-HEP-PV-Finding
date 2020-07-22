@@ -172,36 +172,37 @@ def exp_SGC_diff_K(data, paramVals, learningRate, savedModelsDir, epochs=100, sh
 
     finalResults = []
 
+    # Generates the required data, as each k value requires different data.
+    # Larger K values take more time for this step to complete
+
+    print(f'processing data for k={K}...')
+    allData = genDataForDiffK(data, paramVals, featuresList=featuresList, altFeaturesSize=altFeaturesSize,
+                              altFeaturesData=altFeaturesData,
+                              adjMatrixMode=adjMatrixMode, adjFilterKernel=adjFilterKernel, delta=delta)
+    eventIds = np.array(list(allData.keys()))
+
+    # Saves experiment parameters to file (if condition to make sure it is saved only once)
+    expParams = {'params': paramVals.insert(0, 0), 'rand_seed': seed,
+                 'labels_shuffled': shouldShuffleY, 'learning_rate': learningRate, 'kFolds': kFolds,
+                 'modelSize': [allData[0]['X'].shape[1], allData[0]['y'].shape[1]]}
+
+    saveModelAndResults(None, '', resVals=expParams,
+                        resFile=f'{savedModelsDir}/expParams.pickle')  # Saved experiment parameters to file
+
+    # Shuffle labels accordingly
+    if shouldShuffleY:
+        shuffleLabels(allData, seed)
+
+    print('finished processing data')
+
     # Loop through all different K values in paramVals
     for K in paramVals:
-
-        # Generates the required data, as each k value requires different data.
-        # Larger K values take more time for this step to complete
-        print(f'processing data for k={K}...')
-        allData = genDataForEvents(data, K=K, featuresList=featuresList, altFeaturesSize=altFeaturesSize,
-                                   altFeaturesData=altFeaturesData,
-                                   adjMatrixMode=adjMatrixMode, adjFilterKernel=adjFilterKernel, delta=delta)
-        eventIds = np.array(list(allData.keys()))
-
-        # Saves experiment parameters to file (if condition to make sure it is saved only once)
-        if K == paramVals[0]:
-            expParams = {'params': paramVals.insert(0, 0), 'rand_seed': seed,
-                         'labels_shuffled': shouldShuffleY, 'learning_rate': learningRate, 'kFolds': kFolds,
-                         'modelSize': [allData[0]['X'].shape[1], allData[0]['y'].shape[1]]}
-
-            saveModelAndResults(None, '', resVals=expParams,
-                                resFile=f'{savedModelsDir}/expParams.pickle')  # Saved experiment parameters to file
-
-        # Shuffle labels accordingly
-        if shouldShuffleY:
-            shuffleLabels(allData, seed)
-        print('finished processing data')
 
         # Creates K-Fold object to split data into k-folds
         kf = KFold(n_splits=kFolds, shuffle=KfoldShuff)
 
         # splits train and test data for k-fold cross validation
-        for k_index, [train_index, test_index] in enumerate(kf.split(allData)):
+        for k_index, [train_index, test_index] in enumerate(kf.split(allData[K])):
 
             # Gets train and test values
             train_index = eventIds[train_index]
