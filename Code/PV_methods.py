@@ -28,7 +28,6 @@ from sklearn import cluster as cl
 from sklearn import neighbors
 
 
-
 def z2coord(cPos, cTraj, z, z0):
     return cPos + cTraj * (z - z0)
 
@@ -616,6 +615,37 @@ def plotStackedBar_Kendrick(multiData, binEdges, xyLbls, dataLbls,
     plt.show()
 
 
+# Helper method used in an experiment to concatenate results
+# This assumes averageOverCount is a factor of the total number of elements in the incoming data
+
+def appendAllToOneDict(history, averageOverCount=1):
+    res = {}
+    keys = history[0].history.keys()
+    for key in keys:
+        res[key] = []
+
+    for hist in history:
+        for key in hist.history.keys():
+            res[key].extend(hist.history[key])
+
+    for key in keys:
+        temp = []
+        offset = 0
+        counter = 0
+        sum = 0
+        for val in res[key]:
+            sum += val
+            counter += 1
+            if (counter == averageOverCount):
+                sum /= averageOverCount
+                temp.append(sum)
+                sum = 0
+                counter = 0
+        res[key] = temp
+
+    return res
+
+
 def transposeTrackDataDictionary(matrix):
     initKeys = list(matrix.keys())
     c = len(initKeys)
@@ -625,7 +655,7 @@ def transposeTrackDataDictionary(matrix):
         resMatrix[:, index] = matrix[key]
     return resMatrix
 
-
+# Used to generate a data structure specifically used to generate a stacked bar plot
 def generateStackedBarPlotMatrixFromTracks(tracks):
     tracks = tracks.sort_values(by='gt', axis=1)  # arranges tracks in ascending order of GT cluster ID
     uniqueGTIds = np.unique(tracks.loc['gt'])
@@ -642,10 +672,14 @@ def generateStackedBarPlotMatrixFromTracks(tracks):
     return data
 
 
+# This function is used to generate the appropriate data required for plotted a stacked bar plot from the clusters
+
+# @Params
 # plotType:
 #    found-base = generates the data, including labels, to plot the found-base plot
 #    gt-base = generates the data, including labels, to plot the gt-base plot
 #    Note: anything other than 'found-base' would generate data for the gt-base
+
 def genDataToPlotStackedBarPlot(tracks, plotType):
     tracks = tracks.transpose()
     data = generateStackedBarPlotMatrixFromTracks(tracks)
@@ -670,22 +704,30 @@ def genDataToPlotStackedBarPlot(tracks, plotType):
     return matrix, labels, legendLabels
 
 
+# Labels all tracks as either core(-1)/non-core(0)/outlier(1) using ground truth zip distribution
 def labelTracks(tracks):
     newTracks = pd.DataFrame()
     uniqueEventsIDs = tracks['eventId'].unique()
 
-    #     Loop through every unique events one by one
+#   Loop through every unique event
     for eventId in uniqueEventsIDs:
-        currEventTrack = tracks[tracks.eventId == eventId]
-        uniqueGTIds = currEventTrack['gt'].unique()
-        if (eventId == 0):
-            print(uniqueGTIds)
-        # Loop through tracks for each PV
+
+        currEventTrack = tracks[tracks.eventId == eventId]  # Gets current event data
+        uniqueGTIds = currEventTrack['gt'].unique()  # Gets PV ids in the current event
+
+        # Loop through tracks for each PV in current event
         for gtId in uniqueGTIds:
+
+            # Gets tracks only associated with the current PV
             singlePVTracks = currEventTrack[currEventTrack['gt'] == gtId]
+            # Gets the zScores for the zip values of the tracks in the current PV
             zScores = stats.zscore([val for val in singlePVTracks['zip']])
-            #         singlePVTracks.drop('zScore',axis=1)
-            #         singlePVTracks['zScore'] = zScores
+
+            # Labels each track based on the criteria:
+            #   |z| <= 0.5 : core (-1)
+            #   0.5 < |z| <= 1.5 : non-core (0)
+            #   |z| > 1.5 : outlier (-1)
+
             labels = []
             for index in range(len(zScores)):
                 #             print(index)
@@ -701,11 +743,30 @@ def labelTracks(tracks):
     return newTracks
 
 
+# Helper function to return select columns as python lists
+# Could probably be commented out as this is not being used in the code
 def convertDataFrameToFeatureMatrix(data, featuresList=['trajX', 'trajY', 'angle', 'error', 'zip']):
     return data[featuresList].values.tolist()
 
 
-# eventFile corresponds to the events pvs file
+# This is a wrapper for "importer.extractData()" and is used to load data from multiple events at the same time
+
+# @Params
+# eventFile = The 'name' of the event file being loaded.
+#             Due to the way the importer.extractData() is structured, the tracks and pvs file must both be available
+#             in the specified directory.
+#             It expects the particle file and tracks file to be formatted as "pv_{num}pvs.root" and
+#             "trks_{num}pvs.root" respectively.
+#             Therefore, the argument for eventFile would just be {num}
+#             For example, when loading the pv_100pvs.root and trks_100pvs.root files,
+#             the argument for eventFile would be '100'
+#
+# dataDir = location of the directory where the event files are located
+
+# totalEventsToPool = Optional parameter to choose how many events to load from the specified events file
+#                     By default it loads all events, but if you want to load only the first 10 events from the
+#                     100 events file, the value for this parameter could be set to '10'
+
 def loadAllEvents(eventFile, dataDir, totalEventsToPool=None):
     if totalEventsToPool is None:
         totalEventsToPool = eventFile
@@ -718,6 +779,9 @@ def loadAllEvents(eventFile, dataDir, totalEventsToPool=None):
     return allSims, allTKRecs
 
 
+# Gets a list of simulations (each simulation holds data about one event), generates tracks from them and
+# combines them into one dictionary
+
 def poolAllGTEventTracks(sims):
     tracks = {}
     lastTrackID = 0
@@ -729,6 +793,10 @@ def poolAllGTEventTracks(sims):
     return tracks
 
 
+# Function used to generate a test graph for testing a graph generated using the graphs_neuralnet package.
+# THIS IS NOT BEING USED ANYMORE, AS WE HAVE MOVED TO USING THE SPEKTRAL PACKAGE
+
+# @ Params
 # numNodes =  is a list of ints, where each int signifies the number of nodes in that class. Size of list is the
 #             number of unique classes, and summation of all elements is the total number of nodes
 # edgeProbabilityMatrix = is matrix which contains the probability with which nodes of different
@@ -783,14 +851,18 @@ def generateTestGraphData(numNodes, edgeProbabilityMatrix, randSeed=None, should
     }
 
 
-# Generates SGC model
+# Generates a random SGC model
 
 # F = Original size of node features
 # n_classes = Number of classes
 
 def genModel(F, n_classes, learning_rate=0.2, l2_reg=5e-6, shouldUseBias=True):
+
+    # Set multi-input size
     X_in = Input(shape=(F,))
     fltr_in = Input((None,), sparse=True)
+
+    # Creates SGC layer
     output = GraphConv(n_classes,
                        activation='softmax',
                        kernel_regularizer=l2(l2_reg),
@@ -806,6 +878,10 @@ def genModel(F, n_classes, learning_rate=0.2, l2_reg=5e-6, shouldUseBias=True):
     return model
 
 
+# Uses the guassian kernel to convert the input matrix into an affinity matrix
+# delta = parameter for the gaussian kernel. ZIP and Doca have different ideal delta values (ZIP=5.4, DOCA=0.3)
+# These ideal values were found by Kendrick
+
 def convertToAffinityMatrixGaus(A, delta):
     two_d2 = 2 * (delta ** 2)
     val = np.exp(np.divide(-np.square(A), two_d2))
@@ -813,14 +889,16 @@ def convertToAffinityMatrixGaus(A, delta):
     return val
 
 
+# Uses the inverse kernel to convert the input matrix into an affinity matrix
 def convertToAffinityMatrixInverseKernel(A, delta):
     return delta / (A + delta)
 
 
+# This function is used to generate the required data from event data to train an SGC model
 # This assumes the incoming track data is only for one event
 #
-# adjMatrixMode:
 # @Params
+# adjMatrixMode:
 # ones = connects all nodes with each other with equal weight(1)
 # zip = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
 # doca = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
@@ -842,9 +920,15 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
                                    randEdgeProbability=0.5, randNodeFeatProb=0.5):
     totalNodes = len(tracks.index)
 
+    # Creates adjacency matrix based on the specified parameter
+
+    # Creates an totalNodes x totalNodes matrix, where each element is set to '1'. This simulates a graph where all
+    # nodes are connected to each other with equal weight
     if adjMatrixMode.lower() == 'ones':
         A = np.ones((totalNodes, totalNodes))
 
+    # Uses the ZIP matrix as the adjacency matrix. Then either the gaussian or inverse kernel is used to produce the
+    # affinity matrix
     elif adjMatrixMode.lower() == 'zip':
         zipVals = tracks['zip']
         mat = []
@@ -859,6 +943,8 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
         elif adjFilterKernel.lower() == 'inverse':
             A = convertToAffinityMatrixInverseKernel(np.array(mat), delta)
 
+    # Uses the DOCA matrix as the adjacency matrix. Then either the gaussian or inverse kernel is used to produce the
+    # affinity matrix
     elif adjMatrixMode.lower() == 'doca':
         tracksDict = tracks.transpose().to_dict()
 
@@ -867,22 +953,34 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
         elif adjFilterKernel.lower() == 'inverse':
             A = convertToAffinityMatrixInverseKernel(genPOCADist(tracksDict), delta)
 
+    # Creates an identity matrix of size [totalNodes,totalNodes].
+    # This simulates a graph where no nodes are connected to each other
     elif adjMatrixMode.lower() == 'identity':
         A = np.identity(totalNodes)
 
+    # Creates a random matrix of size [totalNodes,totalNodes]. Each element could either be zero or one, depending on
+    # the randEdgeProbability
     elif adjMatrixMode.lower() == 'random':
         A = np.random.choice([0, 1], size=(totalNodes, totalNodes), p=[1.0 - randEdgeProbability, randEdgeProbability])
 
     else:
         raise ValueError('The only valid arguments for adjacency matrix mode are : ones,zip,doca,identity,random')
 
+    # Creates a nodeFeatures matrix depending on the arguments specified
     nodeFeatures = []
+
+    # Creates a matrix of size [totalNodes, altFeaturesSize], where each element is {altFeaturesData}
     if featureList is None:
         nodeFeatures = np.full((totalNodes, altFeaturesSize), altFeaturesData)
-        # onlyFeatures = tracks.to_numpy()
+
+    # Creates a random matrix of size [totalNodes, altFeaturesSize], where each element has a probability of being
+    # 1 or 0 based on {randNodeFeatProb}
+
     elif featureList is 'random':
         nodeFeatures = np.random.choice([0, 1], size=(totalNodes, altFeaturesSize),
                                         p=[1 - randNodeFeatProb, randNodeFeatProb])
+
+    # Creates a matrix based from the columns specified in the featuresList
     else:
         onlyFeatures = tracks[featureList].to_numpy()
         for i in range(len(onlyFeatures)):
@@ -895,9 +993,8 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
             nodeFeatures.append(tempArr)
         nodeFeatures = np.array(nodeFeatures)
 
+    # Gets track labels
     y_temp = tracks['track_label'].to_numpy()
-    minVal = np.amin(y_temp)
-    maxVal = np.amax(y_temp)
     uniqueLabels = np.unique(y_temp)
     numClasses = len(uniqueLabels)
 
@@ -909,13 +1006,14 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
         y.append(tempArr)
     y = np.array(y)
 
+    # This is lagacy code used to create boolean masks for splitting the data into training, testing and validation sets
+    # This is ignored by the wrapper function, so could be removed in the future to simplify code
     train_mask = np.full(totalNodes, False)
     test_mask = np.full(totalNodes, False)
     val_mask = np.full(totalNodes, False)
 
     trainCount = int((dataSplit[0] / 100.0) * totalNodes)
     testCount = int((dataSplit[1] / 100.0) * totalNodes)
-    valCount = int((dataSplit[2] / 100.0) * totalNodes)
 
     ordering = np.random.permutation(totalNodes)
     for ind in ordering[0:trainCount]:
@@ -928,27 +1026,47 @@ def generateSpectralDataFromTracks(tracks, featureList=None, altFeaturesSize=1, 
     return csr_matrix(A), csr_matrix(nodeFeatures), y, train_mask, test_mask, val_mask
 
 
+# This is a wrapper function for the generateSpectralDataFromTracks()
+
+# @Params
 # adjMatrixMode:
 # ones = connects all nodes with each other with equal weight(1)
 # zip = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
 # doca = uses the zip matrix to create an affinity matrix and uses it as the adjacency matrix
-# ones is the default option, so if anything other than zip and doca are entered, ones would be used
+# identity = can collect information only from itself, i.e. there are no edges with other nodes.
+# random = creates a random adjacency matrix based on the randEdgeProbability
+
+# adjFilterKernel
+# @Params
+# gaussian = Use Gaussian kernel - Only applied on zip and doca
+# inverse = Use Inverse kernel - Only applied on zip and doca
+
+# featuresList
+# None - creates a list of ones of specified size
+# string array of column names - Uses the specified columns as the node features
+# random - creates a random array
 
 def genDataForEvents(tracks, K=2, featuresList=None, altFeaturesSize=1, altFeaturesData=1, adjMatrixMode='ones',
                      adjFilterKernel='gaussian', delta=1, randEdgeProbability=0.5, randNodeFeatProb=0.5):
     res = {}
     uniqueEvents = tracks['eventId'].unique()
+
+    # Loop through each event, and generate the required data structures for it
     for eventId in uniqueEvents:
         event = tracks[tracks.eventId == eventId]
 
         A, X, y, train_mask, test_mask, val_mask = generateSpectralDataFromTracks(event, featureList=featuresList,
                                                                                   dataSplit=[100, 0, 0],
                                                                                   adjMatrixMode=adjMatrixMode,
+                                                                                  adjFilterKernel=adjFilterKernel,
                                                                                   delta=delta,
                                                                                   altFeaturesSize=altFeaturesSize,
                                                                                   altFeaturesData=altFeaturesData,
                                                                                   randEdgeProbability=randEdgeProbability,
                                                                                   randNodeFeatProb=randNodeFeatProb)
+
+        # Prepares the Adjacency matrix by multiplying it K-1 times with itself, as this pre-computational step is
+        # required for the SGC
         fltr = localpooling_filter(A).astype('f4')
         for i in range(K - 1):
             fltr = fltr.dot(fltr)
@@ -959,47 +1077,67 @@ def genDataForEvents(tracks, K=2, featuresList=None, altFeaturesSize=1, altFeatu
     return res
 
 
-# Helper method used in an experiment to concatenate results
-# This assumes averageOverCount is a factor of the total number of elements in the incoming data
+# Loads events, processes them and removed global outliers, and returns as labelled tracks
 
-def appendAllToOneDict(history, averageOverCount=1):
-    res = {}
-    keys = history[0].history.keys()
-    for key in keys:
-        res[key] = []
+# @Params
+# PVFileName = The 'name' of the event file being loaded.
+#             Due to the way the importer.extractData() is structured, the tracks and pvs file must both be available
+#             in the specified directory.
+#             It expects the particle file and tracks file to be formatted as "pv_{num}pvs.root" and
+#             "trks_{num}pvs.root" respectively.
+#             Therefore, the argument for PVFileName would just be {num}
+#             For example, when loading the pv_100pvs.root and trks_100pvs.root files,
+#             the argument for eventFile would be '100'
+#
+# path = location of the directory where the event files are located
 
-    for hist in history:
-        for key in hist.history.keys():
-            res[key].extend(hist.history[key])
+# eventsToLoad = Optional parameter to choose how many events to load from the specified events file
+#                     By default, it loads all events, but if you want to load only the first 10 events from the
+#                     100 events file, the value for this parameter could be set to '10'
 
-    for key in keys:
-        temp = []
-        offset = 0
-        counter = 0
-        sum = 0
-        for val in res[key]:
-            sum += val
-            counter += 1
-            if (counter == averageOverCount):
-                sum /= averageOverCount
-                temp.append(sum)
-                sum = 0
-                counter = 0
-        res[key] = temp
-
-    return res
-
-
-# Loads events, processes them, and returns labelled tracks
 def loadAndPrepareAllEvents(path, PVFileName, eventsToLoad=None):
     dataDir = Path(path)
-    sims, recTks = loadAllEvents(PVFileName, dataDir, eventsToLoad)
-    allGTTracks = poolAllGTEventTracks(sims)  # Creates tracks from events and combines them into one big dictionary
+
+    sims, recTks = loadAllEvents(PVFileName, dataDir, eventsToLoad) # Loads all events
+    allGTTracks = poolAllGTEventTracks(sims)  # Creates tracks from events and combines them into one dictionary
     allGT_ZIP = genZip(allGTTracks)  # Creates zip values for all tracks
-    allGTTracks_ZIP = addZipToTracks(allGTTracks, allGT_ZIP)
+    allGTTracks_ZIP = addZipToTracks(allGTTracks, allGT_ZIP)  # Adds zip values to dictionary
     allGT_pd = pd.DataFrame(
         allGTTracks_ZIP).transpose()  # Create pandas dataframe which is used by the rest of the pipeline
     removedGB = removeGlobalOutliersByZScore(allGT_pd)  # Removes global outliers by zScore
-    all_labelled = labelTracks(removedGB)
+    all_labelled = labelTracks(removedGB)  # Generates labels for tracks using Ground truth ZIP distribution
 
     return all_labelled
+
+
+# Custom accuracy function to test tensorflow's model.evaluate()
+# Target and predicted are numpy arrays of hot vectors
+# Both the inputs must have the same shape
+def calcAccuracy(target, predicted):
+    if target.shape != predicted.shape:
+        raise ValueError('Both the target and the predicted  must have the same shape')
+
+    predicted = np.round(predicted)
+    diff = target - predicted
+    count = np.count_nonzero(diff == 0)
+    return count / (target.shape[0] * target.shape[1])
+
+
+# Custom accuracy function to test tensorflow's model.evaluate()
+# Target and predicted are numpy arrays of hot vectors
+# Both the inputs must have the same shape
+def calcAccuracy_2(target, predicted):
+    if target.shape != predicted.shape:
+        raise ValueError('Both the target and the predicted must have the same shape')
+
+    pred = []
+    for row in predicted:
+        ind = np.argmax(row)
+        newArr = np.zeros(len(row))
+        newArr[ind] = 1
+        pred.append(newArr)
+
+    pred = np.array(pred)
+    diff = target - pred
+    count = np.count_nonzero(diff == 0)
+    return count / (target.shape[0] * target.shape[1])
