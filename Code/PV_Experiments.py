@@ -25,7 +25,7 @@ def shuffleLabels(data, seed=123456789):
 
 # Helper function to test the model and save results to file
 def testModel(model, test, fileName):
-    finalResults = {}
+    finalResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': []}
     testEval = []
     customAcc = []
     customAcc_2 = []
@@ -52,10 +52,10 @@ def testModel(model, test, fileName):
 
 
 # Helper function to train for a given number of total epochs, while saving the results at specified key epochs
-def trainTestEpochs(model, train, test, totalEpochs, saveFileDir, filePrefix, k_index, paramVals):
-
+def trainTestEpochs(model, train, test, totalEpochs, saveFileDir, filePrefix, k_index, paramVals, testZero=True):
     # Test model before training and save model weights and results
-    testModel(model, test, f'{saveFileDir}/{filePrefix}test_FoldInd:{k_index}_ep:0')
+    if testZero:
+        testModel(model, test, f'{saveFileDir}/{filePrefix}test_FoldInd:{k_index}_ep:0')
 
     # Train for totalEpochs
     for epochCount in range(totalEpochs):
@@ -79,17 +79,18 @@ def trainTestEpochs(model, train, test, totalEpochs, saveFileDir, filePrefix, k_
 
 
 # This helper function is used to concatenate results from different KFolds
-def concatenateAndSaveResults(savedModelsDir, kFolds, paramVals, fileName='FINAL'):
+def concatenateAndSaveResults(savedModelsDir, filePrefix, kFolds, paramVals, fileName='FINAL', loadZero=True):
     # Produces and saves final results from intermediate results (Average all K-fold results)
-    paramsToLoad = paramVals
-    paramsToLoad.insert(0, 0)
+    paramsToLoad = list(paramVals)
+    if loadZero:
+        paramsToLoad.insert(0, 0)
 
     # Loads data from intermediate files into array
     allFoldsData = []
     for k_index in range(kFolds):
         tempFoldResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': []}
         for epoch in paramsToLoad:
-            vals = loadFile(f'{savedModelsDir}/test_kInd:{k_index}_ep:{epoch}.pickle')
+            vals = loadFile(f'{savedModelsDir}/{filePrefix}test_FoldInd:{k_index}_ep:{epoch}.pickle')
 
             tempFoldResults['loss'].append(vals['loss'])
             tempFoldResults['accuracy'].append(vals['accuracy'])
@@ -119,10 +120,11 @@ def concatenateAndSaveResults(savedModelsDir, kFolds, paramVals, fileName='FINAL
 # # Cross validation is then performed, and the loss and accuracy are recorded
 
 def exp_SGC_diff_Epoch(allData, paramVals, learningRate, savedModelsDir, kFolds=5, KfoldShuff=False,
-                         shouldShuffleY=False, seed=123456789):
-
+                       shouldShuffleY=False, seed=123456789):
     # Saves experiment parameters to file
-    expParams = {'params': paramVals.insert(0, 0), 'rand_seed': seed,
+    tempParams = list(paramVals)
+    tempParams.insert(0, 0)
+    expParams = {'params': tempParams, 'rand_seed': seed,
                  'labels_shuffled': shouldShuffleY, 'learning_rate': learningRate, 'kFolds': kFolds,
                  'modelSize': [allData[0]['X'].shape[1], allData[0]['y'].shape[1]]}
 
@@ -152,11 +154,11 @@ def exp_SGC_diff_Epoch(allData, paramVals, learningRate, savedModelsDir, kFolds=
 
         # Trains model, and tests it at the specified key epochs, and saves the test results along with model weights
         # at those key epochs
-        trainTestEpochs(model, train, test, paramVals[-1], savedModelsDir,'', k_index, paramVals)
-        print(f'Finished the {k_index}th k-fold')
+        trainTestEpochs(model, train, test, paramVals[-1], savedModelsDir, '', k_index, paramVals)
+        print(f'Finished the {k_index + 1}th k-fold')
 
     # Computes final results by averaging results over the different kFolds and saves final results
-    res = concatenateAndSaveResults(savedModelsDir, kFolds, paramVals)
+    res = concatenateAndSaveResults(savedModelsDir, '', kFolds, paramVals)
     print(f'Finished computing and saving final results')
 
     return res
@@ -166,25 +168,41 @@ def exp_SGC_diff_Epoch(allData, paramVals, learningRate, savedModelsDir, kFolds=
 # # A new model is initialized per K value, and is trained for the specified number of epochs.
 # # Cross validation is then performed, and the loss and accuracy are recorded
 
-def exp_SGC_diff_K(data, paramVals, learningRate, savedModelsDir, epochs=100, shouldShuffleY=False,
-                   kFolds=5, seed=123456789, KfoldShuff = False, featuresList=None, altFeaturesSize=3, altFeaturesData=1,
-                   adjMatrixMode='zip', adjFilterKernel='gaussian', delta=5.4):
+def exp_SGC_diff_K(data, paramVals, learningRate, savedModelsDir, epochs=100, keyEpochs = None,shouldShuffleY=False,
+                   kFolds=5, seed=123456789, KfoldShuff=False, featuresList=None, altFeaturesSize=3, altFeaturesData=1,
+                   adjMatrixMode='zip', adjFilterKernel='gaussian', delta=5.4,testZero=False):
+
+    # This is an array that controls what key epochs are saved. By default it only saves after the training has finished
+    if keyEpochs is None:
+        keyEpochs = [epochs]
+    else:
+        if epochs not in keyEpochs:
+            keyEpochs.append(epochs)
 
     finalResults = []
 
     # Generates the required data, as each k value requires different data.
     # Larger K values take more time for this step to complete
 
-    print(f'processing data for k={K}...')
+    print(f'processing data for...')
     allData = genDataForDiffK(data, paramVals, featuresList=featuresList, altFeaturesSize=altFeaturesSize,
                               altFeaturesData=altFeaturesData,
                               adjMatrixMode=adjMatrixMode, adjFilterKernel=adjFilterKernel, delta=delta)
-    eventIds = np.array(list(allData.keys()))
+
+    firstKVal = list(allData.keys())[0]
+    eventIds = np.array(list(allData[firstKVal].keys()))
+    firstEventId = eventIds[0]
+
+    keyEpochsTemp = list(keyEpochs)
+    if testZero:
+        keyEpochsTemp.insert(0,0)
 
     # Saves experiment parameters to file (if condition to make sure it is saved only once)
-    expParams = {'params': paramVals.insert(0, 0), 'rand_seed': seed,
+    expParams = {'params': paramVals, 'rand_seed': seed, 'keyEpochs':keyEpochsTemp,
                  'labels_shuffled': shouldShuffleY, 'learning_rate': learningRate, 'kFolds': kFolds,
-                 'modelSize': [allData[0]['X'].shape[1], allData[0]['y'].shape[1]]}
+                 'modelSize': [allData[firstKVal][firstEventId]['X'].shape[1],
+                               allData[firstKVal][firstEventId]['y'].shape[1]]
+                 }
 
     saveModelAndResults(None, '', resVals=expParams,
                         resFile=f'{savedModelsDir}/expParams.pickle')  # Saved experiment parameters to file
@@ -203,12 +221,11 @@ def exp_SGC_diff_K(data, paramVals, learningRate, savedModelsDir, epochs=100, sh
 
         # splits train and test data for k-fold cross validation
         for k_index, [train_index, test_index] in enumerate(kf.split(allData[K])):
-
             # Gets train and test values
             train_index = eventIds[train_index]
             test_index = eventIds[test_index]
-            train = [allData[key] for key in train_index]
-            test = [allData[key] for key in test_index]
+            train = [allData[K][key] for key in train_index]
+            test = [allData[K][key] for key in test_index]
 
             # Generates a random SGC model
             model = genModel(train[0]['X'].shape[1], train[0]['y'].shape[1], learning_rate=learningRate,
@@ -216,14 +233,16 @@ def exp_SGC_diff_K(data, paramVals, learningRate, savedModelsDir, epochs=100, sh
 
             # Trains model, and tests it at the specified key epochs, and saves the test results along with model
             # weights at those key epochs
-            trainTestEpochs(model, train, test, epochs, savedModelsDir, f'K={K}_', k_index, [epochs])
+            trainTestEpochs(model, train, test, epochs, savedModelsDir, f'K={K}_', k_index, keyEpochs,testZero=testZero)
+            print(f'Finished the {k_index + 1}th k-fold')
 
         # Computes results by averaging results over the different kFolds and saves results
-        results = concatenateAndSaveResults(savedModelsDir, kFolds, [epochs],fileName=f'FINAL_K={K}')
+        results = concatenateAndSaveResults(savedModelsDir, f'K={K}_', kFolds, keyEpochs, fileName=f'FINAL_K={K}',
+                                            loadZero=testZero)
         finalResults.append(results)
         print(f'Finished computing and saving results for K={K}')
 
     # Saves final results to file
-    saveModelAndResults(None,'',finalResults,f'{savedModelsDir}/ULTIMATE_FINAL.pickle')
+    saveModelAndResults(None, '', finalResults, f'{savedModelsDir}/ULTIMATE_FINAL.pickle')
 
     return finalResults

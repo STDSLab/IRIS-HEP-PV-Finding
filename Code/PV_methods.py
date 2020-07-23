@@ -8,6 +8,7 @@ import sklearn as sk
 from sklearn import cluster as cl
 from scipy.sparse import csr_matrix
 import random
+import copy
 
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.layers import Input
@@ -1154,15 +1155,16 @@ def genDataForDiffK(tracks, kVals, featuresList=None, altFeaturesSize=1, altFeat
             prevK = currK
             eventFilters[K] = fltr
 
-        dat = {'A': A, 'X': X.toarray(), 'y': y, 'fltr': None}
+        dat = {'A': A, 'X': X.toarray(), 'y': y}
         res[eventId] = dat
         filters[eventId] = eventFilters
 
     finalRes = {}
     for K in kVals:
-        finalRes[K] = res[eventId].copy()
+        finalRes[K] = {}
         for eventId in uniqueEvents:
-            finalRes[K][eventId][fltr] = filters[eventId][K]
+            finalRes[K][eventId] = {'A':res[eventId]['A'],'X':res[eventId]['X'],'y':res[eventId]['y']}
+            finalRes[K][eventId]['fltr'] = filters[eventId][K]
 
     return finalRes
 
