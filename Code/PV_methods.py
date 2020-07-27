@@ -577,10 +577,12 @@ def calcPercentageTracksFound(found_clusters, gt_clusters):
         results[gtId] = count
     return results
 
+
 def printClusterResults(clusters):
     print('GT Cluster ID     ||   Number of clusters within 500 microns')
     for key in clusters.keys():
-        print(f'{key}            ||   {clusters[key]} ')
+        print(f'{key}               ||   {clusters[key]} ')
+
 
 def plotZIPHistogramByClusters(tracks, bins=100, title="", xLabel="", yLabel="", colorMap='gist_rainbow'):
     plt.figure()
