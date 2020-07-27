@@ -235,6 +235,10 @@ def genGTTracks(sim, eventIdx=-1):
         prtTk['gt'] = sim['prts']['pv'][prt]
         prtTk['eventId'] = eventIdx
 
+        pv = {'x': sim['pvs']['x'][int(prtTk['gt'])],
+              'y': sim['pvs']['y'][int(prtTk['gt'])], 'z': sim['pvs']['z'][int(prtTk['gt'])]}
+        prtTk['pv'] = pv
+
         # error computation
         # assume first hit is 100% accurate, can draw a track between the pv and first hit
         # error is then computed as the average hit distance away from this line
@@ -520,6 +524,63 @@ def clusterTracksByHAC(tracks, numClusters):
     sortedList = sorted(pairsHAC, key=lambda x: x[0])
     return addClusterKeyToTracks(sortedList).transpose()
 
+
+def calculateCentroidForFoundAndGTClusters(tracks):
+    clusterIDs = tracks['Cluster_id'].unique()
+    gtIds = tracks['gt']
+    numOfFoundClusters = len(clusterIDs)
+
+    beamLine = {'x': [0, 0], 'y': [0, 0], 'z': [-10000, 10000]}
+
+    found_centroids = {}
+    for clID in clusterIDs:
+        clTracks = tracks[tracks['Cluster_id'] == clID]
+        pocas = {}
+        for index, row in clTracks.iterrows():
+            tempTracks = {}
+            tempTracks[0] = row
+            tempTracks[1] = beamLine
+            pocas[index] = [getPOCABetween2Tracks(tempTracks, 0, 1)]
+            # print(pocas[index])
+
+        centroid = np.array([float(0), float(0), float(0)])
+        for key in pocas.keys():
+            # print('-----------------')
+            # print(pocas[key][0][1])
+            # print('-----------------')
+            centroid += np.array(pocas[key][0][1])
+        centroid = centroid / len(pocas.keys())
+        found_centroids[clID] = centroid
+
+    gt_centroids = {}
+    for gtID in gtIds:
+        gtTracks = tracks[tracks['gt'] == gtID]
+
+        gt_centroid = np.array([float(0), float(0), float(0)])
+        for index, row in gtTracks.iterrows():
+            pv = [row['pv']['x'], row['pv']['y'], row['pv']['z']]
+            gt_centroid += np.array(pv)
+        gt_centroid = gt_centroid / len(gtTracks.index.values)
+        gt_centroids[gtID] = gt_centroid
+
+    return found_centroids, gt_centroids
+
+
+def calcPercentageTracksFound(found_clusters, gt_clusters):
+    results = {}
+    for gtId in gt_clusters.keys():
+        count = 0
+        for clID in found_clusters.keys():
+            dist = np.linalg.norm(gt_clusters[gtId] - found_clusters[clID])
+            if dist < 500e-3:
+                count += 1
+        results[gtId] = count
+    return results
+
+def printClusterResults(clusters):
+    print('GT Cluster ID     ||   Number of clusters within 500 microns')
+    for key in clusters.keys():
+        print(f'{key}            ||   {clusters[key]} ')
 
 def plotZIPHistogramByClusters(tracks, bins=100, title="", xLabel="", yLabel="", colorMap='gist_rainbow'):
     plt.figure()
@@ -1163,7 +1224,7 @@ def genDataForDiffK(tracks, kVals, featuresList=None, altFeaturesSize=1, altFeat
     for K in kVals:
         finalRes[K] = {}
         for eventId in uniqueEvents:
-            finalRes[K][eventId] = {'A':res[eventId]['A'],'X':res[eventId]['X'],'y':res[eventId]['y']}
+            finalRes[K][eventId] = {'A': res[eventId]['A'], 'X': res[eventId]['X'], 'y': res[eventId]['y']}
             finalRes[K][eventId]['fltr'] = filters[eventId][K]
 
     return finalRes
@@ -1233,3 +1294,11 @@ def calcAccuracy_2(target, predicted):
     diff = target - pred
     count = np.count_nonzero(diff == 0)
     return count / (target.shape[0] * target.shape[1])
+
+
+def calcAccuracy_3(target, predicted):
+    if target.shape != predicted.shape:
+        raise ValueError('Both the target and the predicted must have the same shape')
+
+    diff = np.abs(target - predicted)
+    return 1.0 - np.sum(diff) / (target.shape[0] * target.shape[1])

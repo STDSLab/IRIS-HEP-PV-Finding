@@ -29,6 +29,7 @@ def testModel(model, test, fileName):
     testEval = []
     customAcc = []
     customAcc_2 = []
+    customAcc_3 = []
     for key in range(len(test)):
         X = test[key]['X']
         y = test[key]['y']
@@ -40,12 +41,14 @@ def testModel(model, test, fileName):
         pred = model.predict([X, fltr], batch_size=X.shape[0])
         customAcc.append(calcAccuracy(y, pred))
         customAcc_2.append(calcAccuracy_2(y, pred))
+        customAcc_3.append(calcAccuracy_3(y, pred))
 
     averageTest = np.average(np.array(testEval), axis=0)
     finalResults['loss'].append(averageTest[0])
     finalResults['accuracy'].append(averageTest[1])
     finalResults['custom_accuracy'].append(np.average(np.array(customAcc)))
     finalResults['custom_accuracy_2'].append(np.average(np.array(customAcc_2)))
+    finalResults['custom_accuracy_3'].append(np.average(np.array(customAcc_3)))
 
     saveModelAndResults(model, f'{fileName}.h5', resVals=finalResults,
                         resFile=f'{fileName}.pickle')
@@ -88,7 +91,7 @@ def concatenateAndSaveResults(savedModelsDir, filePrefix, kFolds, paramVals, fil
     # Loads data from intermediate files into array
     allFoldsData = []
     for k_index in range(kFolds):
-        tempFoldResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': []}
+        tempFoldResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': [], 'custom_accuracy_3': []}
         for epoch in paramsToLoad:
             vals = loadFile(f'{savedModelsDir}/{filePrefix}test_FoldInd:{k_index}_ep:{epoch}.pickle')
 
@@ -96,11 +99,12 @@ def concatenateAndSaveResults(savedModelsDir, filePrefix, kFolds, paramVals, fil
             tempFoldResults['accuracy'].append(vals['accuracy'])
             tempFoldResults['custom_accuracy'].append(vals['custom_accuracy'])
             tempFoldResults['custom_accuracy_2'].append(vals['custom_accuracy_2'])
+            tempFoldResults['custom_accuracy_3'].append(vals['custom_accuracy_3'])
 
         allFoldsData.append(tempFoldResults)
 
     # Computes the average of results over kFolds, and produces final results
-    finalResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': []}
+    finalResults = {'loss': [], 'accuracy': [], 'custom_accuracy': [], 'custom_accuracy_2': [], 'custom_accuracy_3': []}
     for key in finalResults.keys():
         tempArray = []
         for k_index in range(kFolds):
