@@ -9,6 +9,7 @@ from sklearn import cluster as cl
 from scipy.sparse import csr_matrix
 import random
 import copy
+import pickle
 
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.layers import Input
@@ -461,6 +462,8 @@ def dictArrayToArray(dictArray, dtype=float):
         dictArray.values(), dtype, count=len(dictArray))
 
 
+# removes global outliers using the zip distribution of the entire event and
+# excluding tracks outside the specified IQR range
 def removeGlobalOutliersByIQR(tracks, IQRThresh=1.5):
     finalTracks = pd.DataFrame()
     uniqueEventIds = tracks['eventId'].unique()
@@ -479,6 +482,8 @@ def removeGlobalOutliersByIQR(tracks, IQRThresh=1.5):
     return finalTracks
 
 
+# removes global outliers using the zip distribution of the entire event and excluding tracks outside the
+# specified zScore
 def removeGlobalOutliersByZScore(tracks, ZThresh=1.5):
     finalTracks = pd.DataFrame()
     uniqueEventIds = tracks['eventId'].unique()
@@ -498,14 +503,23 @@ def removeGlobalOutliersByZScore(tracks, ZThresh=1.5):
     return finalTracks
 
 
-# List of tuples, where the first element of each tuple contains the cluster ID and the second element contains the track
 # Helper function used by clustering methods
+
+# List of tuples, where the first element of each tuple contains the cluster ID and the
+# second element contains the track
 def addClusterKeyToTracks(pairs):
     tracks = {}
     for pair in pairs:
         tracks[int(pair[1].name)] = pair[1].append(pd.Series([pair[0]], name='ClusterID'), ignore_index=False)
     return pd.DataFrame(tracks).rename(index={0: 'Cluster_id'})
 
+
+# Clusters tracks using K-means.
+
+# Returns pandas dataframe with a new "Cluster_id" column which specifies the cluster
+# to which the specific track belongs
+
+# Requires the number of the clusters to be found as input.
 
 def clusterTracksByKMeans(tracks, numClusters):
     tracks = tracks.transpose()
@@ -516,6 +530,13 @@ def clusterTracksByKMeans(tracks, numClusters):
     return addClusterKeyToTracks(sortedList).transpose()
 
 
+# Clusters tracks using Hierarchial Agglomerative Clustering.
+
+# Returns pandas dataframe with a new "Cluster_id" column which specifies the cluster
+# to which the specific track belongs
+
+# Requires the number of the clusters to be found as input.
+
 def clusterTracksByHAC(tracks, numClusters):
     tracks = tracks.transpose()
     vals = [[v] for v in tracks.loc['zip']]
@@ -525,33 +546,31 @@ def clusterTracksByHAC(tracks, numClusters):
     return addClusterKeyToTracks(sortedList).transpose()
 
 
+# Calculates and returns centroids for ground truth clusters and 'found' clusters
 def calculateCentroidForFoundAndGTClusters(tracks):
     clusterIDs = tracks['Cluster_id'].unique()
     gtIds = tracks['gt']
-    numOfFoundClusters = len(clusterIDs)
 
     beamLine = {'x': [0, 0], 'y': [0, 0], 'z': [-10000, 10000]}
 
+    # Calculate centroids for 'found' clusters
     found_centroids = {}
     for clID in clusterIDs:
         clTracks = tracks[tracks['Cluster_id'] == clID]
         pocas = {}
         for index, row in clTracks.iterrows():
-            tempTracks = {}
-            tempTracks[0] = row
-            tempTracks[1] = beamLine
-            pocas[index] = [getPOCABetween2Tracks(tempTracks, 0, 1)]
-            # print(pocas[index])
+            # getPOCABetween2Tracks() return 2 points, one point on the track's path and the other on the beamline.
+            # Here, only the point on the beamline is selected
+            tempTracks = {0: row, 1: beamLine}
+            pocas[index] = getPOCABetween2Tracks(tempTracks, 0, 1)[1]
 
         centroid = np.array([float(0), float(0), float(0)])
         for key in pocas.keys():
-            # print('-----------------')
-            # print(pocas[key][0][1])
-            # print('-----------------')
-            centroid += np.array(pocas[key][0][1])
+            centroid += np.array(pocas[key])
         centroid = centroid / len(pocas.keys())
         found_centroids[clID] = centroid
 
+    # Calculate centroids for ground truth clusters
     gt_centroids = {}
     for gtID in gtIds:
         gtTracks = tracks[tracks['gt'] == gtID]
@@ -566,22 +585,72 @@ def calculateCentroidForFoundAndGTClusters(tracks):
     return found_centroids, gt_centroids
 
 
-def calcPercentageTracksFound(found_clusters, gt_clusters):
+def calcNumPVsFound(found_clusters, gt_clusters, tracks):
     results = {}
     for gtId in gt_clusters.keys():
         count = 0
+        totalTracksFound = 0
+        found = []
+        gtTracks = tracks[tracks['gt']==gtId]
+        gtTrackIndex = set(gtTracks.index.values)
+
         for clID in found_clusters.keys():
+
             dist = np.linalg.norm(gt_clusters[gtId] - found_clusters[clID])
             if dist < 500e-3:
                 count += 1
-        results[gtId] = count
+
+                clusterTracks = tracks[tracks['Cluster_id']==clID]
+                clTrackIndex = clusterTracks.index.values
+                tracksInCommon = len(list(gtTrackIndex.intersection(clTrackIndex)))
+                totalTracksFound += tracksInCommon
+
+                found.append({'cl_id':clID,'dist':dist,'tracksInCommon':tracksInCommon,'totalTracks':len(clTrackIndex)})
+        results[gtId] = {'count':count,'clusterData':found,'totalTracksFound':totalTracksFound, 'totalTracksInPV':len(gtTrackIndex), 'percentageTracksFound':(float(totalTracksFound)*100.0)/float(len(gtTrackIndex))}
+
     return results
 
 
+def clusterAndCalculatePercentageTracksFound(tracks, debug=False):
+    eventIds = tracks['eventId'].unique()
+    finalRes = {}
+    for eventId in eventIds:
+        if debug:
+            print(f'Calculating for event: {eventId}')
+
+        eventTracks = tracks[tracks['eventId'] == eventId]
+        totalNumGTPVs = len(eventTracks['gt'].unique())
+        clusteredTracks_HAC = clusterTracksByHAC(eventTracks, totalNumGTPVs)
+
+        found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks_HAC)
+        res = calcNumPVsFound(found_centroids, gt_centroids, clusteredTracks_HAC)
+        finalRes[eventId] = res
+
+    return finalRes
+
+
+def plotPVTrackCountVsFoundTracks(vals, title,filename):
+    gtTotalTracks = []
+    foundTracks = []
+    for eventId in vals.keys():
+        for gtId in vals[eventId].keys():
+            gtTotalTracks.append(vals[eventId][gtId]['totalTracksInPV'])
+            foundTracks.append(vals[eventId][gtId]['totalTracksFound'])
+
+    plt.figure()
+    plt.scatter(gtTotalTracks,foundTracks)
+    plt.title(title,fontsize='x-large')
+    plt.xlabel('Total number of tracks in GT PV',fontsize='x-large')
+    plt.ylabel('Number of tracks found',fontsize='x-large')
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+
 def printClusterResults(clusters):
-    print('GT Cluster ID     ||   Number of clusters within 500 microns')
+    print('GT Cluster ID     ||   Number of clusters within 500 microns  ||  percentage Tracks Found  || clusterData')
     for key in clusters.keys():
-        print(f'{key}               ||   {clusters[key]} ')
+
+        print(f'{key}               ||   {clusters[key]["count"]}                                      ||  '
+              f'{clusters[key]["percentageTracksFound"]}                         '
+              f'||        {clusters[key]["clusterData"]}       ')
 
 
 def plotZIPHistogramByClusters(tracks, bins=100, title="", xLabel="", yLabel="", colorMap='gist_rainbow'):
@@ -677,6 +746,11 @@ def plotStackedBar_Kendrick(multiData, binEdges, xyLbls, dataLbls,
     ax.set_ylim(0, list(reversed(sorted(base)))[0] + 2)  # To add extra space on top of the bars
     plt.tight_layout()
     plt.show()
+
+
+def saveResults(resVals, resFile):
+    with open(resFile, 'wb') as handle:
+        pickle.dump(resVals, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 # Helper method used in an experiment to concatenate results
