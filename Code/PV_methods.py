@@ -1,3 +1,7 @@
+# This module contains functions used throughout my various pipelines.
+# TODO: Split this module into different sub-modules
+
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -11,6 +15,7 @@ import random
 import copy
 import pickle
 
+from sklearn.decomposition import NMF
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.layers import Input
 from tensorflow.keras.models import Model
@@ -28,6 +33,8 @@ import itertools
 
 from sklearn import cluster as cl
 from sklearn import neighbors
+
+from FNMTF import FNMTF
 
 
 def z2coord(cPos, cTraj, z, z0):
@@ -434,6 +441,18 @@ def genPOCADist(tkData):
     return distMat
 
 
+def genZipMatrix(tracks):
+    zipVals = tracks['zip']
+    mat = []
+    for v1 in zipVals:
+        temp = []
+        for v2 in zipVals:
+            temp.append(np.abs(v1 - v2))
+        mat.append(temp)
+    mat = np.array(mat)
+    return mat
+
+
 def getPOCABetween2Tracks(tkData, key1, key2):
     maxDist = 1.0
     tk = tkData[key1]
@@ -530,6 +549,15 @@ def clusterTracksByKMeans(tracks, numClusters):
     return addClusterKeyToTracks(sortedList).transpose()
 
 
+def clusterTracksByKMeans_2(tracks, numClusters):
+    vals = tracks[['zip', 'angle', 'error', 'trajX', 'trajY']].to_numpy()
+    tracks = tracks.transpose()
+    centroids, y_km, _ = cl.k_means(vals, init='k-means++', n_clusters=numClusters)
+    pairs = [(clID, tracks[trackInd]) for clID, trackInd in zip(y_km, tracks)]
+    sortedList = sorted(pairs, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
 # Clusters tracks using Hierarchial Agglomerative Clustering.
 
 # Returns pandas dataframe with a new "Cluster_id" column which specifies the cluster
@@ -543,6 +571,87 @@ def clusterTracksByHAC(tracks, numClusters):
     HAC = sk.cluster.AgglomerativeClustering(n_clusters=numClusters).fit(vals)
     pairsHAC = [(clID, tracks[trackInd]) for clID, trackInd in zip(HAC.labels_, tracks)]
     sortedList = sorted(pairsHAC, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
+def clusterTracksByHAC_2(tracks, numClusters):
+    vals = tracks[['zip', 'angle', 'error', 'trajX', 'trajY']].to_numpy()
+    tracks = tracks.transpose()
+    HAC = sk.cluster.AgglomerativeClustering(n_clusters=numClusters).fit(vals)
+    pairsHAC = [(clID, tracks[trackInd]) for clID, trackInd in zip(HAC.labels_, tracks)]
+    sortedList = sorted(pairsHAC, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
+def clusterTracksByFNMTF_ZIP(tracks, numClusters):
+    zipVals = tracks['zip']
+    mat = []
+    for v1 in zipVals:
+        temp = []
+        for v2 in zipVals:
+            temp.append(np.abs(v1 - v2))
+        mat.append(temp)
+    mat = np.array(mat)
+    X = convertToAffinityMatrixGaus(mat, 5.4)
+
+    F, S, errors, iterCount = FNMTF(X, numClusters, 100000, 10, 2)
+    labels = np.argmax(F, axis=1)
+
+    tracks = tracks.transpose()
+    pairs = [(clID, tracks[tracksInd]) for clID, tracksInd in zip(labels, tracks)]
+    sortedList = sorted(pairs, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
+def clusterTracksByFNMTF_DOCA(tracks, numClusters):
+    tracksDict = tracks.transpose().to_dict()
+    X = convertToAffinityMatrixGaus(genPOCADist(tracksDict), 0.3)
+
+    # model = NMF(n_components=numClusters,max_iter=10000, solver='mu')
+    # W = model.fit_transform(X)
+    # labels = np.argmax(W,axis=1)
+
+    F, S, errors, iterCount = FNMTF(X, numClusters, 100000, 10, 2)
+    labels = np.argmax(F, axis=1)
+
+    tracks = tracks.transpose()
+    pairs = [(clID, tracks[tracksInd]) for clID, tracksInd in zip(labels, tracks)]
+    sortedList = sorted(pairs, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
+def clusterTracksByNMF_ZIP(tracks, numClusters):
+    zipVals = tracks['zip']
+    mat = []
+    for v1 in zipVals:
+        temp = []
+        for v2 in zipVals:
+            temp.append(np.abs(v1 - v2))
+        mat.append(temp)
+    mat = np.array(mat)
+    X = convertToAffinityMatrixGaus(mat, 5.4)
+
+    model = NMF(n_components=numClusters, max_iter=10000, solver='mu')
+    W = model.fit_transform(X)
+    labels = np.argmax(W, axis=1)
+
+    tracks = tracks.transpose()
+    pairs = [(clID, tracks[tracksInd]) for clID, tracksInd in zip(labels, tracks)]
+    sortedList = sorted(pairs, key=lambda x: x[0])
+    return addClusterKeyToTracks(sortedList).transpose()
+
+
+def clusterTracksByNMF_DOCA(tracks, numClusters):
+    tracksDict = tracks.transpose().to_dict()
+    X = convertToAffinityMatrixGaus(genPOCADist(tracksDict), 0.3)
+
+    model = NMF(n_components=numClusters, max_iter=10000, solver='mu')
+    W = model.fit_transform(X)
+    labels = np.argmax(W, axis=1)
+
+    tracks = tracks.transpose()
+    pairs = [(clID, tracks[tracksInd]) for clID, tracksInd in zip(labels, tracks)]
+    sortedList = sorted(pairs, key=lambda x: x[0])
     return addClusterKeyToTracks(sortedList).transpose()
 
 
@@ -576,22 +685,27 @@ def calculateCentroidForFoundAndGTClusters(tracks):
         gtTracks = tracks[tracks['gt'] == gtID]
 
         gt_centroid = np.array([float(0), float(0), float(0)])
-        for index, row in gtTracks.iterrows():
-            pv = [row['pv']['x'], row['pv']['y'], row['pv']['z']]
-            gt_centroid += np.array(pv)
-        gt_centroid = gt_centroid / len(gtTracks.index.values)
+
+        # for index, row in gtTracks.iterrows():
+        #     pv = [row['pv']['x'], row['pv']['y'], row['pv']['z']]
+        #     gt_centroid += np.array(pv)
+        # gt_centroid = gt_centroid / len(gtTracks.index.values)
+
+        firstTrack = gtTracks.iloc[0]
+        pv = [firstTrack['pv']['x'], firstTrack['pv']['y'], firstTrack['pv']['z']]
+        gt_centroid = pv
         gt_centroids[gtID] = gt_centroid
 
     return found_centroids, gt_centroids
 
 
-def calcNumPVsFound(found_clusters, gt_clusters, tracks):
+def calcPVAndClusterMetaData(found_clusters, gt_clusters, tracks):
     results = {}
     for gtId in gt_clusters.keys():
         count = 0
         totalTracksFound = 0
         found = []
-        gtTracks = tracks[tracks['gt']==gtId]
+        gtTracks = tracks[tracks['gt'] == gtId]
         gtTrackIndex = set(gtTracks.index.values)
 
         for clID in found_clusters.keys():
@@ -600,18 +714,21 @@ def calcNumPVsFound(found_clusters, gt_clusters, tracks):
             if dist < 500e-3:
                 count += 1
 
-                clusterTracks = tracks[tracks['Cluster_id']==clID]
+                clusterTracks = tracks[tracks['Cluster_id'] == clID]
                 clTrackIndex = clusterTracks.index.values
                 tracksInCommon = len(list(gtTrackIndex.intersection(clTrackIndex)))
                 totalTracksFound += tracksInCommon
 
-                found.append({'cl_id':clID,'dist':dist,'tracksInCommon':tracksInCommon,'totalTracks':len(clTrackIndex)})
-        results[gtId] = {'count':count,'clusterData':found,'totalTracksFound':totalTracksFound, 'totalTracksInPV':len(gtTrackIndex), 'percentageTracksFound':(float(totalTracksFound)*100.0)/float(len(gtTrackIndex))}
+                found.append(
+                    {'cl_id': clID, 'dist': dist, 'tracksInCommon': tracksInCommon, 'totalTracks': len(clTrackIndex)})
+        results[gtId] = {'count': count, 'clusterData': found, 'totalTracksFound': totalTracksFound,
+                         'totalTracksInPV': len(gtTrackIndex),
+                         'percentageTracksFound': (float(totalTracksFound) * 100.0) / float(len(gtTrackIndex))}
 
     return results
 
 
-def clusterAndCalculatePercentageTracksFound(tracks, debug=False):
+def clusterAndCalculatePercentageTracksFound(tracks, clusteringFunc, debug=False):
     eventIds = tracks['eventId'].unique()
     finalRes = {}
     for eventId in eventIds:
@@ -620,16 +737,16 @@ def clusterAndCalculatePercentageTracksFound(tracks, debug=False):
 
         eventTracks = tracks[tracks['eventId'] == eventId]
         totalNumGTPVs = len(eventTracks['gt'].unique())
-        clusteredTracks_HAC = clusterTracksByHAC(eventTracks, totalNumGTPVs)
+        clusteredTracks = clusteringFunc(eventTracks, totalNumGTPVs)
 
-        found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks_HAC)
-        res = calcNumPVsFound(found_centroids, gt_centroids, clusteredTracks_HAC)
+        found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks)
+        res = calcPVAndClusterMetaData(found_centroids, gt_centroids, clusteredTracks)
         finalRes[eventId] = res
 
     return finalRes
 
 
-def plotPVTrackCountVsFoundTracks(vals, title,filename):
+def plotPVTrackCountVsFoundTracks(vals, title, filename):
     gtTotalTracks = []
     foundTracks = []
     for eventId in vals.keys():
@@ -638,19 +755,141 @@ def plotPVTrackCountVsFoundTracks(vals, title,filename):
             foundTracks.append(vals[eventId][gtId]['totalTracksFound'])
 
     plt.figure()
-    plt.scatter(gtTotalTracks,foundTracks)
-    plt.title(title,fontsize='x-large')
-    plt.xlabel('Total number of tracks in GT PV',fontsize='x-large')
-    plt.ylabel('Number of tracks found',fontsize='x-large')
+    plt.scatter(gtTotalTracks, foundTracks, s=1)
+    plt.title(title, fontsize='x-large')
+    plt.xlabel('Total number of tracks in GT PV', fontsize='x-large')
+    plt.ylabel('Number of tracks found', fontsize='x-large')
+    # plt.show()
     plt.savefig(filename, dpi=300, bbox_inches='tight')
 
-def printClusterResults(clusters):
-    print('GT Cluster ID     ||   Number of clusters within 500 microns  ||  percentage Tracks Found  || clusterData')
-    for key in clusters.keys():
 
-        print(f'{key}               ||   {clusters[key]["count"]}                                      ||  '
-              f'{clusters[key]["percentageTracksFound"]}                         '
-              f'||        {clusters[key]["clusterData"]}       ')
+def concatValuesIntoBins(x, y, window):
+    newX = []
+    newY = []
+
+    mini = min(x)
+    maxi = max(x)
+    rang = maxi - mini
+    divs = int(rang / window)
+
+    if mini + (divs * window) < maxi:
+        divs + 1
+
+    for i in range(divs):
+        start = mini + (i * window)
+        end = mini + ((i + 1) * window)
+        r = list(range(start, end, 1))
+        ind = np.in1d(x, r)
+        vals = y[ind]
+        av = np.average(vals)
+
+        newX.append(np.average(r))
+        newY.append(av)
+
+    return newX, newY
+
+
+def plotGTTrackCountVsDiscoveredFraction(vals, title, filename, window=5, save=True):
+    tracksByGTTrackCount = {}
+    alreadyAdded = []
+
+    for eventId in vals.keys():
+        for gtId in vals[eventId].keys():
+
+            num = vals[eventId][gtId]['totalTracksInPV']
+            if num not in alreadyAdded:
+                alreadyAdded.append(num)
+                tracksByGTTrackCount[num] = []
+
+            tracksByGTTrackCount[num].append(vals[eventId][gtId]['totalTracksFound'] > 0)
+
+    values = []
+    for key in tracksByGTTrackCount.keys():
+        arr = np.array(tracksByGTTrackCount[key])
+        discCount = float(np.count_nonzero(arr))
+        fraction = discCount / float(len(arr))
+        values.append((key, fraction))
+
+    values.sort()
+    tGTrackCount = np.array([pair[0] for pair in values])
+    fractions = np.array([pair[1] for pair in values])
+
+    newtGTrackCount, newFractions = concatValuesIntoBins(tGTrackCount, fractions, window)
+    # newtGTrackCount = tGTrackCount
+    # newFractions = fractions
+
+    plt.figure()
+    plt.bar(newtGTrackCount, newFractions, width=window, edgecolor='b')
+    plt.title(title, fontsize='x-large')
+    plt.xlabel('number of tracks in GT PVs', fontsize='x-large')
+    plt.ylabel('Fraction of PVs discovered', fontsize='x-large')
+    plt.ylim(0, 1.1)
+
+    if save:
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+
+    plt.show()
+    return (tGTrackCount, fractions), (newtGTrackCount, newFractions)
+
+
+def plotPVTrackCountVsAverageFoundCount(vals, title, filename, window=5, save=True):
+    tracksByGTTrackCount = {}
+    alreadyAdded = []
+
+    for eventId in vals.keys():
+        for gtId in vals[eventId].keys():
+
+            num = vals[eventId][gtId]['totalTracksInPV']
+            if num not in alreadyAdded:
+                alreadyAdded.append(num)
+                tracksByGTTrackCount[num] = []
+
+            v = vals[eventId][gtId]['count']
+            if v > 0:
+                tracksByGTTrackCount[num].append(v)
+
+    values = []
+    for key in tracksByGTTrackCount.keys():
+        if len(tracksByGTTrackCount[key]) > 0:
+            arr = np.array(tracksByGTTrackCount[key])
+            values.append((key, np.average(arr)))
+
+    values.sort()
+    tGTrackCount = np.array([pair[0] for pair in values])
+    fractions = np.array([pair[1] for pair in values])
+
+    newtGTrackCount, newFractions = concatValuesIntoBins(tGTrackCount, fractions, window)
+
+    plt.figure()
+    plt.bar(newtGTrackCount, newFractions, width=window, edgecolor='b')
+    plt.title(title, fontsize='x-large')
+    plt.xlabel('number of tracks in GT PVs', fontsize='x-large')
+    plt.ylabel('Average number of found PVs that detected GT PV', fontsize='x-large')
+
+    if save:
+        plt.savefig(filename, dpi=300, bbox_inches='tight')
+
+    plt.show()
+    return (tGTrackCount, fractions), (newtGTrackCount, newFractions)
+
+
+def getResultsPerEvent(data):
+    table = []
+    for gtId in data.keys():
+        table.append([gtId, data[gtId]["count"], data[gtId]['totalTracksInPV'],
+                      data[gtId]['totalTracksFound'], data[gtId]["percentageTracksFound"]])
+
+    tableWithHeader = {'PV ID': [], 'Number_of_discovered_PVs_within_500_microns': [], 'total_tracks_in_PV': [],
+                       'total_tracks_found': [], 'percentage_tracks_found %': []}
+
+    for index, head in enumerate(tableWithHeader.keys()):
+        for row in table:
+            tableWithHeader[head].append(row[index])
+
+    dat = pd.DataFrame(tableWithHeader)
+    dat = dat.set_index('PV ID')
+    dat = dat.sort_values('PV ID')
+    return dat
 
 
 def plotZIPHistogramByClusters(tracks, bins=100, title="", xLabel="", yLabel="", colorMap='gist_rainbow'):
@@ -674,25 +913,62 @@ def plotZIPHistogramByClusters(tracks, bins=100, title="", xLabel="", yLabel="",
     plt.show()
 
 
+def genColorList(numColors, colorMap='gist_rainbow', elemRepeatCount=None):
+    # Unique colors code taken from https://stackoverflow.com/questions/8389636/creating-over-20
+    # -unique-legend-colors-using-matplotlib
+    cm = plt.get_cmap('gist_rainbow')
+    numColors = int(numColors)
+    colorsList = [cm(1. * i / numColors) for i in range(numColors)]
+
+    if elemRepeatCount is not None:
+        newColorsList = []
+        for c in colorsList:
+            for _ in range(elemRepeatCount):
+                newColorsList.append(c)
+        colorsList = newColorsList
+
+    return colorsList
+
+
+def plotBarChart(labels, values, title='', xLabel='', yLabel='', labelRotation='horizontal', save=False, fileName=None,
+                 color='b', edgeColor='k', figSize=None, width=1):
+    if figSize is not None:
+        plt.figure(figsize=figSize)
+    else:
+        plt.figure()
+    plt.bar(labels, values, color=color, edgeColor=edgeColor, width=width)
+    plt.title(title)
+    plt.xlabel(xLabel)
+    plt.ylabel(yLabel)
+    plt.xticks(rotation=labelRotation)
+
+    if save:
+        if fileName is None:
+            raise ValueError('Cannot save plot without file name')
+        plt.savefig(fileName, dpi=300, bbox_inches='tight')
+    plt.show()
+
+
 # Made by Alan
 def plotStackedBarPlot(dataMatrix, labels, width=1, title='', legendLabels=[], xLabel="", yLabel="", legendOffset=0,
-                       binEdges=None, align='edge'):
-    fig = plt.figure()
+                       binEdges=None, align='center', colorMap='gist_rainbow',figsize=None):
+    if figsize is not None:
+        fig = plt.figure(figsize=figsize)
+    else:
+        fig = plt.figure()
     height = np.zeros(len(dataMatrix[0]))
     ax = fig.add_subplot(111)
     #     binEdges = np.arange(len(dataMatrix[0]))
-    if (binEdges is None):
-        binEdges = np.linspace(0, len(dataMatrix[0]), len(dataMatrix[0]) + 1)
+    if binEdges is None:
+        binEdges = np.linspace(0, len(dataMatrix[0]), len(dataMatrix[0]))
 
-    NUM_COLORS = len(dataMatrix)
-    cm = plt.get_cmap(
-        'gist_rainbow')  # Unique colors code taken from https://stackoverflow.com/questions/8389636/creating-over-20-unique-legend-colors-using-matplotlib
-    colorsList = [cm(1. * i / NUM_COLORS) for i in range(NUM_COLORS)]
+    colorsList = genColorList(len(dataMatrix), colorMap)
     ax.set_prop_cycle(color=colorsList)
 
     for index, row in enumerate(dataMatrix):
-        ax.bar(x=binEdges[:-1], height=row, bottom=height, tick_label=labels,
-               width=binEdges[index + 1] - binEdges[index], edgecolor='k', align=align)
+        ax.bar(x=binEdges, height=row, bottom=height, tick_label=labels,
+               width=width,
+               edgecolor='k', align=align)
         height += np.array(row)
 
     colors = {}
@@ -702,9 +978,9 @@ def plotStackedBarPlot(dataMatrix, labels, width=1, title='', legendLabels=[], x
     handles = [plt.Rectangle((0, 10), 1, 1, color=colors[label], edgecolor='k') for label in legendLabels]
     ax.legend(handles, legendLabels, bbox_to_anchor=(1 + legendOffset, 0.5), loc="center left", borderaxespad=0)
 
-    ax.set_ylim(0, list(reversed(sorted(height)))[0] + 2)  # To add extra space on top of the bars
+    ax.set_ylim(0, list(reversed(sorted(height)))[0] + 5)  # To add extra space on top of the bars
     #     ax.set_xlim(0.5,binEdges[-1]+1)  # To add extra space on top of the bars
-    ax.set_title(title, pad=20)
+    ax.set_title(title, pad=2)
     ax.set_ylabel(yLabel)
     ax.set_xlabel(xLabel)
     plt.tight_layout()
@@ -745,6 +1021,70 @@ def plotStackedBar_Kendrick(multiData, binEdges, xyLbls, dataLbls,
     ax.set_title(title)
     ax.set_ylim(0, list(reversed(sorted(base)))[0] + 2)  # To add extra space on top of the bars
     plt.tight_layout()
+    plt.show()
+
+
+def plotDensityPlotForPVZIPDistribution(tracks, ax):
+    uniqueGTs = tracks['gt'].unique()
+    vals = []
+    for gtId in uniqueGTs:
+        vals.append(pd.DataFrame({gtId: tracks[tracks['gt'] == gtId]['zip'].to_numpy()}))
+    data = pd.concat(vals, ignore_index=True, axis=1)
+
+    data.plot.kde(ax=ax, style='-', linewidth=2)
+
+# This function generates a synthetic cluster matrix
+# Each cluster is of equal size, but the last cluster might be larger if the sample size is not
+# divisible by cluster count
+
+# inputs:
+# n = sampleSize
+# k = numClusters
+def genSyntheticClusterMatrix(sampleSize, numberOfCusters):
+    samplesPerCluster = int(sampleSize / numberOfCusters)
+    arr = np.zeros((sampleSize, sampleSize))
+
+    for cl in range(numberOfCusters):
+        start = cl * samplesPerCluster
+        if cl == numberOfCusters - 1:
+            diff = sampleSize - samplesPerCluster * numberOfCusters
+            samplesPerCluster = samplesPerCluster + diff
+
+        arr[start:start + samplesPerCluster, start:start + samplesPerCluster] = 1
+
+    return arr
+
+
+def stretchMatrixToApproxSquare(X):
+    r = X.shape[0]
+    c = X.shape[1]
+    diff = np.abs(r - c)
+    maxVal = max(r, c)
+
+    if diff <= 0.1 * maxVal:
+        return X
+    elif r > c:
+        columns = []
+        count = int(r / c)
+        for j in range(c):
+            for it in range(count):
+                columns.append(X[:, j])
+        return np.array(columns).transpose()
+    else:
+        rows = []
+        count = int(c / r)
+        for i in range(r):
+            for it in range(count):
+                rows.append(X[i, :])
+        return np.array(rows)
+
+
+def plotMatrices(data, title):
+    plt.figure()
+    im = plt.imshow(data)
+    ax = plt.gca()
+    ax.figure.colorbar(im, ax=ax)
+    ax.set_title(title)
     plt.show()
 
 
@@ -795,11 +1135,12 @@ def transposeTrackDataDictionary(matrix):
 
 
 # Used to generate a data structure specifically used to generate a stacked bar plot
+# This assumes cluster Ids do not have any gaps in values between them.
+# for example, the system would break if there are ten clusters and index values do not span exactly from 0 to 9
 def generateStackedBarPlotMatrixFromTracks(tracks):
     tracks = tracks.sort_values(by='gt', axis=1)  # arranges tracks in ascending order of GT cluster ID
     uniqueGTIds = np.unique(tracks.loc['gt'])
     uniqueClusterIds = np.unique(tracks.loc['Cluster_id'])
-    gtTotalPVs = len(uniqueGTIds)
     totalClustersFound = len(uniqueClusterIds)
 
     data = {id: np.zeros(totalClustersFound) for id in uniqueGTIds}
@@ -819,12 +1160,34 @@ def generateStackedBarPlotMatrixFromTracks(tracks):
 #    gt-base = generates the data, including labels, to plot the gt-base plot
 #    Note: anything other than 'found-base' would generate data for the gt-base
 
-def genDataToPlotStackedBarPlot(tracks, plotType):
+def genDataToPlotStackedBarPlot(tracks, plotType, centroids=None):
     tracks = tracks.transpose()
     data = generateStackedBarPlotMatrixFromTracks(tracks)
 
+    ylabel = 'Number of Tracks'
+
     if plotType == 'found-base':
-        labels = np.unique(tracks.loc['Cluster_id'])
+        title = plotType
+        if centroids is not None:
+            vals = []
+            for key in centroids.keys():
+                vals.append((centroids[key][2], key))
+            vals.sort()
+            newKeys = [v[1] for v in vals]
+            centLocs = np.array([v[0] for v in vals], dtype='float')
+            # labels = np.array(newKeys)
+            labels = [round(val) for val in centLocs]
+            binLocs = centLocs
+            newData = dict(data)
+            for key in data.keys():
+                newData[key] = np.array(data[key])[newKeys]
+            data = newData
+            xlabel = 'ZIP'
+
+        else:
+            labels = np.unique(tracks.loc['Cluster_id'])
+            xlabel = 'Cluster ID'
+
         legendLabels = list(data.keys())
         matrix = []
         for key in legendLabels:
@@ -832,15 +1195,43 @@ def genDataToPlotStackedBarPlot(tracks, plotType):
         for index, lab in enumerate(legendLabels):
             legendLabels[index] = 'pv' + str(int(lab))
     else:
+        title = 'gt-base'
+        origOrder = list(data.keys())
         matrix = transposeTrackDataDictionary(data)
+        if centroids is not None:
+            vals = []
+            for key in centroids.keys():
+                vals.append((centroids[key][2], key))
+            vals.sort()
+            newKeys = [v[1] for v in vals]
+            centLocs = np.array([v[0] for v in vals], dtype='float')
+
+            labels = [round(val) for val in centLocs]
+            binLocs = centLocs
+
+            newData = np.zeros(matrix.shape)
+            for j, key in enumerate(newKeys):
+                ind = np.argwhere(origOrder == key)[0][0]
+
+                newData[:, j] = matrix[:, ind]
+            matrix = newData
+
+            xlabel = 'ZIP'
+
+        else:
+            labels = [str(int(val)) for val in
+                      list(data.keys())]  # Convert pv ID from float to int, just so that it looks better
+            xlabel = 'PV ID'
+
         legendLabels = np.unique(tracks.loc['Cluster_id'])
-        labels = [str(int(val)) for val in
-                  list(data.keys())]  # Convert pv ID from float to int, just so that it looks better
 
         for index, lab in enumerate(legendLabels):
             legendLabels[index] = 'cl' + str(int(lab))
 
-    return matrix, labels, legendLabels
+    if centroids is None:
+        binLocs = np.linspace(0, len(matrix[0]), len(matrix[0]))
+
+    return matrix, labels, legendLabels, binLocs, title, xlabel, ylabel
 
 
 # Labels all tracks as either core(-1)/non-core(0)/outlier(1) using ground truth zip distribution
@@ -869,7 +1260,7 @@ def labelTracks(tracks):
 
             labels = []
             for index in range(len(zScores)):
-                #             print(index)
+
                 curZScore = zScores[index]
                 if -0.5 <= curZScore <= 0.5:
                     labels.append(-1)
@@ -877,6 +1268,25 @@ def labelTracks(tracks):
                     labels.append(0)
                 else:
                     labels.append(1)
+
+            labels = np.array(labels)
+            coreTrackInd = np.where(labels == -1)[0]
+
+            if len(coreTrackInd) == 0:
+                # print('not found')
+                # print(f'label array: {labels}')
+                # print(f'zSCore len: {len(zScores)}')
+                # print(f'curZ: {curZScore}')
+                # print(f'number of tracks in this PV: {len(labels)}')
+                # print(f'number of tracks labelled as core: {len(np.where(labels == -1)[0])}')
+                # print(f'number of tracks labelled as non-core: {len(np.where(labels == 0)[0])}')
+                # print(f'number of tracks labelled as outlier: {len(np.where(labels == 1)[0])}')
+
+                # If no core tracks are labelled, mark all tracks as Core.
+                # Since those only occurs in PVs with a low count of tracks,
+                # marking them all as core would be the ideal thing to do
+                labels[:] = -1
+
             singlePVTracks['track_label'] = labels
             newTracks = newTracks.append(singlePVTracks)
     return newTracks
@@ -1333,8 +1743,8 @@ def loadAndPrepareAllEvents(path, PVFileName, eventsToLoad=None):
     allGTTracks_ZIP = addZipToTracks(allGTTracks, allGT_ZIP)  # Adds zip values to dictionary
     allGT_pd = pd.DataFrame(
         allGTTracks_ZIP).transpose()  # Create pandas dataframe which is used by the rest of the pipeline
-    removedGB = removeGlobalOutliersByZScore(allGT_pd)  # Removes global outliers by zScore
-    all_labelled = labelTracks(removedGB)  # Generates labels for tracks using Ground truth ZIP distribution
+    # removedGB = removeGlobalOutliersByZScore(allGT_pd)  # Removes global outliers by zScore
+    all_labelled = labelTracks(allGT_pd)  # Generates labels for tracks using Ground truth ZIP distribution
 
     return all_labelled
 
@@ -1378,3 +1788,44 @@ def calcAccuracy_3(target, predicted):
 
     diff = np.abs(target - predicted)
     return 1.0 - np.sum(diff) / (target.shape[0] * target.shape[1])
+
+
+def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc,titleSufix=''):
+    figsize = (25,10)
+    width = 2
+    binScale = 3
+
+    eventTracks = tracks[tracks['eventId'] == eventId]
+
+    totalNumGTPVs = len(eventTracks['gt'].unique())
+    clusteredTracks = clusteringFunc(eventTracks, totalNumGTPVs)
+    found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks)
+
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+                                                                                                 "found-base",
+                                                                                                 found_centroids)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}', xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+                                                                                                 "gt-base",
+                                                                                                 gt_centroids)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}', xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+
+    eventTracks = tracks[(tracks['eventId'] == 0) & (tracks.track_label == -1)]
+    totalNumGTPVs = len(eventTracks['gt'].unique())
+    clusteredTracks = clusteringFunc(eventTracks, totalNumGTPVs)
+    found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks)
+
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+                                                                                                 "found-base",
+                                                                                                 found_centroids)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}', xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+                                                                                                 "gt-base",
+                                                                                                 gt_centroids)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}', xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)

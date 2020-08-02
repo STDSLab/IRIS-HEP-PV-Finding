@@ -1,9 +1,14 @@
-from PV_Experiments import *
+from SGC_diffHypParamExperiments import *
 import sys
+
+# The below was never tested, but is supposed to take arguments from the command line and run the exp.
+# Restore these if script doesnt work
+
+# This script is supposed to run the different epochs experiment
+
 
 # @params
 # fileName, paramVals, eventFile,shouldShuffleY, learningRate=0.01, subEvents
-
 args = sys.argv
 fileName = args[0]
 paramVals = args[1]
