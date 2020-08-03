@@ -1,3 +1,6 @@
+# Script used for ideating, basically a scratch file
+
+
 from SGC_diffHypParamExperiments import *
 from FNMTF import FNMTF
 
@@ -5,23 +8,23 @@ print('loading data...')
 tracks = loadAndPrepareAllEvents('../Data/', 500, 1)
 print('finished loading')
 
-fig = plt.figure(figsize=(15,10), dpi=100)
-ax = fig.add_subplot(111)
-
-plotDensityPlotForPVZIPDistribution(tracks, ax)
-plotDensityPlotForPVZIPDistribution(tracks[tracks.track_label == -1], ax)
-
-plt.xlim(-50, 200)
-plt.title('PV density distribution (all-tracks[-] vs core-tracks[--])',fontsize='x-large')
-plt.xlabel('ZIP', fontsize='x-large')
-plt.ylabel('Density', fontsize='x-large')
-
-ax.get_legend().remove()
-plt.show()
+# fig = plt.figure(figsize=(15,10), dpi=100)
+# ax = fig.add_subplot(111)
+#
+# plotDensityPlotForPVZIPDistribution(tracks, ax)
+# plotDensityPlotForPVZIPDistribution(tracks[tracks.track_label == -1], ax)
+#
+# plt.xlim(-50, 200)
+# plt.title('PV density distribution (all-tracks[-] vs core-tracks[--])',fontsize='x-large')
+# plt.xlabel('ZIP', fontsize='x-large')
+# plt.ylabel('Density', fontsize='x-large')
+#
+# ax.get_legend().remove()
+# plt.show()
 
 dir = '../Exp_results/tracksTest/'
-# plotClusterStackedBarPlots(labelled,0,clusterTracksByHAC,'HAC')
-# plotClusterStackedBarPlots(labelled,0,clusterTracksByHAC,'FNMTF_ZIP')
+plotClusterStackedBarPlots(tracks,0,clusterTracksByHAC,'HAC')
+# plotClusterStackedBarPlots(tracks,0,clusterTracksByFNMTF_ZIP,'FNMTF_ZIP')
 
 # res1 = getResultsPerEvent(allTracks[0])
 # res2 = getResultsPerEvent(onlyCore[0])

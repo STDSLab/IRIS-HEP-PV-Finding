@@ -6,6 +6,7 @@ import sys
 
 # This script is supposed to run the different epochs experiment
 
+# Author: Alan Joshua Aneeth Jegaraj
 
 # @params
 # fileName, paramVals, eventFile,shouldShuffleY, learningRate=0.01, subEvents

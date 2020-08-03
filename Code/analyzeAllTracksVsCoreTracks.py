@@ -1,5 +1,5 @@
 # This script contains functions to analyze the results from the AllTracksVsCoreTracksEXP script
-
+# Author: Alan Joshua Aneeth Jegaraj
 
 from pandas import ExcelWriter
 

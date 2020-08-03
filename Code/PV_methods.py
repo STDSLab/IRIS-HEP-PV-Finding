@@ -1,6 +1,8 @@
 # This module contains functions used throughout my various pipelines.
 # TODO: Split this module into different sub-modules
 
+# Author: Alan Joshua Aneeth Jegaraj (The first few methods are authored by Kendrick Li)
+
 
 import numpy as np
 import pandas as pd
@@ -951,7 +953,7 @@ def plotBarChart(labels, values, title='', xLabel='', yLabel='', labelRotation='
 
 # Made by Alan
 def plotStackedBarPlot(dataMatrix, labels, width=1, title='', legendLabels=[], xLabel="", yLabel="", legendOffset=0,
-                       binEdges=None, align='center', colorMap='gist_rainbow',figsize=None):
+                       binEdges=None, align='center', colorMap='gist_rainbow', figsize=None):
     if figsize is not None:
         fig = plt.figure(figsize=figsize)
     else:
@@ -1024,14 +1026,20 @@ def plotStackedBar_Kendrick(multiData, binEdges, xyLbls, dataLbls,
     plt.show()
 
 
-def plotDensityPlotForPVZIPDistribution(tracks, ax):
+def plotDensityPlotForPVZIPDistribution(tracks, ax, style='-', labelPrefix=''):
     uniqueGTs = tracks['gt'].unique()
     vals = []
     for gtId in uniqueGTs:
         vals.append(pd.DataFrame({gtId: tracks[tracks['gt'] == gtId]['zip'].to_numpy()}))
     data = pd.concat(vals, ignore_index=True, axis=1)
 
-    data.plot.kde(ax=ax, style='-', linewidth=2)
+    data.plot.kde(ax=ax, style=style, linewidth=2)
+
+    labels = []
+    for index in range(len(uniqueGTs)):
+        labels.append(f'{labelPrefix} PV: {index}')
+
+    return labels
 
 # This function generates a synthetic cluster matrix
 # Each cluster is of equal size, but the last cluster might be larger if the sample size is not
@@ -1152,6 +1160,11 @@ def generateStackedBarPlotMatrixFromTracks(tracks):
     return data
 
 
+# This function takes in bin locations, formats them, and returns the formatted bin locations
+def formatBinLocations(binLocs, tol=0):
+    return binLocs
+
+
 # This function is used to generate the appropriate data required for plotted a stacked bar plot from the clusters
 
 # @Params
@@ -1230,6 +1243,8 @@ def genDataToPlotStackedBarPlot(tracks, plotType, centroids=None):
 
     if centroids is None:
         binLocs = np.linspace(0, len(matrix[0]), len(matrix[0]))
+
+    binLocs = formatBinLocations(binLocs)
 
     return matrix, labels, legendLabels, binLocs, title, xlabel, ylabel
 
@@ -1790,10 +1805,9 @@ def calcAccuracy_3(target, predicted):
     return 1.0 - np.sum(diff) / (target.shape[0] * target.shape[1])
 
 
-def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc,titleSufix=''):
-    figsize = (25,10)
+def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc, titleSufix=''):
+    figsize = (25, 10)
     width = 2
-    binScale = 3
 
     eventTracks = tracks[tracks['eventId'] == eventId]
 
@@ -1804,14 +1818,16 @@ def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc,titleSufix=''):
     matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "found-base",
                                                                                                  found_centroids)
-    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}', xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}',
+                       xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
 
     matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "gt-base",
                                                                                                  gt_centroids)
-    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}', xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}',
+                       xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
 
     eventTracks = tracks[(tracks['eventId'] == 0) & (tracks.track_label == -1)]
     totalNumGTPVs = len(eventTracks['gt'].unique())
@@ -1821,11 +1837,13 @@ def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc,titleSufix=''):
     matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "found-base",
                                                                                                  found_centroids)
-    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}', xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}',
+                       xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
 
     matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "gt-base",
                                                                                                  gt_centroids)
-    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}', xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges*binScale, figsize=figsize, width=width)
+    plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}',
+                       xLabel=xlabel,
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
