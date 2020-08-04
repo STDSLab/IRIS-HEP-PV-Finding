@@ -953,7 +953,7 @@ def plotBarChart(labels, values, title='', xLabel='', yLabel='', labelRotation='
 
 # Made by Alan
 def plotStackedBarPlot(dataMatrix, labels, width=1, title='', legendLabels=[], xLabel="", yLabel="", legendOffset=0,
-                       binEdges=None, align='center', colorMap='gist_rainbow', figsize=None):
+                       binEdges=None, align='center', colorMap='gist_rainbow', figsize=None, dividerLocs=None):
     if figsize is not None:
         fig = plt.figure(figsize=figsize)
     else:
@@ -985,6 +985,18 @@ def plotStackedBarPlot(dataMatrix, labels, width=1, title='', legendLabels=[], x
     ax.set_title(title, pad=2)
     ax.set_ylabel(yLabel)
     ax.set_xlabel(xLabel)
+
+    if dividerLocs is not None:
+        newDivs = []
+        for div in dividerLocs:
+            newDivs.append(div - 0.5)
+            newDivs.append(div + 0.5)
+
+        secax = ax.secondary_xaxis('bottom')
+        secax.set_xticks(newDivs)
+        secax.tick_params(colors='k', width=1, length=20, direction='inout')
+        secax.xaxis.set_ticklabels([])
+
     plt.tight_layout()
     plt.show()
 
@@ -1161,8 +1173,28 @@ def generateStackedBarPlotMatrixFromTracks(tracks):
 
 
 # This function takes in bin locations, formats them, and returns the formatted bin locations
-def formatBinLocations(binLocs, tol=0):
-    return binLocs
+def formatBinLocations(binLocs, tol=0, binWidth=1):
+    newVals = []
+    axisDividerLocs = []
+    prevVal = None
+
+    for index, bin in enumerate(binLocs):
+        if prevVal is None:
+            prevVal = bin
+            newVals.append(bin)
+            continue
+
+        diff = np.abs(bin - prevVal)
+        if diff > tol:
+            newVals.append(newVals[-1]+tol)
+            axisDividerLocs.append((newVals[-1]+newVals[-2])/2)
+        elif diff < binWidth:
+            newVals.append(newVals[-1]+binWidth)
+        else:
+            newVals.append(newVals[-1]+diff)
+        prevVal = bin
+
+    return newVals, axisDividerLocs
 
 
 # This function is used to generate the appropriate data required for plotted a stacked bar plot from the clusters
@@ -1173,7 +1205,7 @@ def formatBinLocations(binLocs, tol=0):
 #    gt-base = generates the data, including labels, to plot the gt-base plot
 #    Note: anything other than 'found-base' would generate data for the gt-base
 
-def genDataToPlotStackedBarPlot(tracks, plotType, centroids=None):
+def genDataToPlotStackedBarPlot(tracks, plotType, centroids=None, binWidth=1, tol=10):
     tracks = tracks.transpose()
     data = generateStackedBarPlotMatrixFromTracks(tracks)
 
@@ -1244,9 +1276,9 @@ def genDataToPlotStackedBarPlot(tracks, plotType, centroids=None):
     if centroids is None:
         binLocs = np.linspace(0, len(matrix[0]), len(matrix[0]))
 
-    binLocs = formatBinLocations(binLocs)
+    binLocs, dividerLocs = formatBinLocations(binLocs, tol=tol, binWidth=binWidth)
 
-    return matrix, labels, legendLabels, binLocs, title, xlabel, ylabel
+    return matrix, labels, legendLabels, binLocs, title, xlabel, ylabel, dividerLocs
 
 
 # Labels all tracks as either core(-1)/non-core(0)/outlier(1) using ground truth zip distribution
@@ -1805,9 +1837,7 @@ def calcAccuracy_3(target, predicted):
     return 1.0 - np.sum(diff) / (target.shape[0] * target.shape[1])
 
 
-def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc, titleSufix=''):
-    figsize = (25, 10)
-    width = 2
+def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc, titleSufix='', figsize=(10,5), binWidth=2, tol=10):
 
     eventTracks = tracks[tracks['eventId'] == eventId]
 
@@ -1815,35 +1845,43 @@ def plotClusterStackedBarPlots(tracks, eventId, clusteringFunc, titleSufix=''):
     clusteredTracks = clusteringFunc(eventTracks, totalNumGTPVs)
     found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks)
 
-    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel, dividerLocs = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "found-base",
-                                                                                                 found_centroids)
+                                                                                                 found_centroids,
+                                                                                                 binWidth,
+                                                                                                 tol=tol)
     plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}',
                        xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=binWidth, dividerLocs=dividerLocs)
 
-    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel, dividerLocs = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "gt-base",
-                                                                                                 gt_centroids)
+                                                                                                 gt_centroids,
+                                                                                                 binWidth,
+                                                                                                 tol=tol)
     plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_All-tracks_{titleSufix}',
                        xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=binWidth, dividerLocs=dividerLocs)
 
     eventTracks = tracks[(tracks['eventId'] == 0) & (tracks.track_label == -1)]
     totalNumGTPVs = len(eventTracks['gt'].unique())
     clusteredTracks = clusteringFunc(eventTracks, totalNumGTPVs)
     found_centroids, gt_centroids = calculateCentroidForFoundAndGTClusters(clusteredTracks)
 
-    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel, dividerLocs = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "found-base",
-                                                                                                 found_centroids)
+                                                                                                 found_centroids,
+                                                                                                 binWidth,
+                                                                                                 tol=tol)
     plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}',
                        xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=binWidth, dividerLocs=dividerLocs)
 
-    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel = genDataToPlotStackedBarPlot(clusteredTracks,
+    matrix, labels, lengendLabels, binEdges, title, xlabel, ylabel, dividerLocs = genDataToPlotStackedBarPlot(clusteredTracks,
                                                                                                  "gt-base",
-                                                                                                 gt_centroids)
+                                                                                                 gt_centroids,
+                                                                                                 binWidth,
+                                                                                                 tol=tol)
     plotStackedBarPlot(matrix, labels, legendLabels=lengendLabels, title=f'{title}_Core-tracks_{titleSufix}',
                        xLabel=xlabel,
-                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=width)
+                       yLabel=ylabel, binEdges=binEdges, figsize=figsize, width=binWidth, dividerLocs=dividerLocs)
