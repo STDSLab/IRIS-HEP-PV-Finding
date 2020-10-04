@@ -8,7 +8,15 @@
 # Author: Alan Joshua Aneeth Jegaraj
 
 
-from PV_methods import *
+import numpy as np
+
+
+# def norm(M):
+#     # M = M / np.linalg.norm(M)
+#     for j in range(M.shape[1]):
+#         # M[:, j] = M[:, j] / np.sqrt(np.sum(np.square(M[:, j])))
+#         M[:, j] = M[:, j] / np.sum(M[:, j])
+#     return M
 
 
 # inputs:
@@ -16,7 +24,9 @@ from PV_methods import *
 # k = numClusters
 def genF(n, k):
     F = np.zeros((n, k))
+
     randSec = np.random.randint(0, k, n - k)
+
     objMem = list(range(k))
     objMem.extend(randSec)
     objMem = np.array(objMem)
@@ -28,7 +38,7 @@ def genF(n, k):
     return F
 
 
-def FNMTF(X, numClusters, maxIter, errRate, stopTolerance = np.inf):
+def FNMTF(X, numClusters, maxIter, errRate=100, stopTolerance=np.inf):
     if X.shape[0] != X.shape[1]:
         raise ValueError('Matrix must be symmetric')
 
@@ -51,12 +61,13 @@ def FNMTF(X, numClusters, maxIter, errRate, stopTolerance = np.inf):
 
         if itCount % errRate == 0:
             recX = F.dot(S).dot(F.transpose())
-            currErr = np.linalg.norm(X - recX, ord='fro')**2
+            currErr = np.linalg.norm(X - recX, ord='fro') ** 2
             errors[itCount] = currErr
 
             if bestErr > currErr:
                 bestF = F
                 bestErr = currErr
+                tolCount = 0
             else:
                 tolCount += 1
 
@@ -76,7 +87,7 @@ def FNMTF(X, numClusters, maxIter, errRate, stopTolerance = np.inf):
             memNum = np.sum(F, axis=0)
             if memNum[i] == 0:
                 maxInd = np.argmax(memNum)
-                nonZ = np.where(np.any(F[:, maxInd] > 0))[0]
+                nonZ = np.flatnonzero(F[:, maxInd])
                 nonZ = nonZ[np.random.permutation(len(nonZ))]
                 F[nonZ[0], :] = 0
                 F[nonZ[0], i] = 1
@@ -98,5 +109,3 @@ def FNMTF(X, numClusters, maxIter, errRate, stopTolerance = np.inf):
         S = np.linalg.lstsq(FtF.T, inter1.dot(X).dot(F).T)[0]
 
     return F, S, errors, iterationsCompleted
-
-
