@@ -552,22 +552,16 @@ def loadAllEvents(eventFile, dataDir, totalEventsToPool=None, loadSingleEvent=No
         if loadOnlySpecificEvents is None:
             for eventID in range(totalEventsToPool):
                 sim, tkRec = importer(eventFile, dataDir).extractData(eventID)
-                # allSims.append(sim)
-                # allTKRecs.append(tkRec)
                 allSims[eventID] = sim
                 allTKRecs[eventID] = tkRec
         else:
             for eventID in loadOnlySpecificEvents:
                 sim, tkRec = importer(eventFile, dataDir).extractData(eventID)
-                # allSims.append(sim)
-                # allTKRecs.append(tkRec)
                 allSims[eventID] = sim
                 allTKRecs[eventID] = tkRec
     else:
         eventID = loadSingleEvent
         sim, tkRec = importer(eventFile, dataDir).extractData(eventID)
-        # allSims.append(sim)
-        # allTKRecs.append(tkRec)
         allSims[eventID] = sim
         allTKRecs[eventID] = tkRec
     return allSims, allTKRecs
@@ -609,7 +603,6 @@ def loadAndPrepareAllEvents_labelled(path, PVFileName, eventsToLoad=None, loadSi
 # Wrapper function to load events to perform clustering
 def loadAndPrepareAllEvents(path, PVFileName, eventsToLoad=None, loadSingleEvent=None):
     dataDir = Path(path)
-
     sims, recTks = loadAllEvents(PVFileName, dataDir, eventsToLoad, loadSingleEvent)  # Loads all events
     allGTTracks = poolAllGTEventTracks(sims)  # Creates tracks from events and combines them into one dictionary
     allGT_ZIP = genZip(allGTTracks)  # Creates zip values for all tracks
