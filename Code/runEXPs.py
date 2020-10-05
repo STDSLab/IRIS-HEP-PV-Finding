@@ -3,7 +3,7 @@ from Code.clusteringFunctions import clusterAndEvaluate, cluster_HAC, cluster_FN
 from Code.prepareData import loadAndPrepareAllEvents, loadFile
 from Code.analyzeResults import compileResultsInTable, compileResultsByPVCombination
 import pandas as pd
-from plottingUtils import makeTotalPerformancePlot, publishPlot, makePerformanceByPVTypePlot
+from Code.plottingUtils import makeTotalPerformancePlot, publishPlot, makePerformanceByPVTypePlot
 
 
 def runExp(tracks, clusteringFunc, fileName, dir, runCore=False, applyKernel=True, save=True,
@@ -55,11 +55,11 @@ HAC = runExp(tracks, cluster_HAC, HAC_fileName, saveDir, repeatTimes=20, save=sa
 FNMTF = runExp(tracks, cluster_FNMTF, FNMTF_fileName, saveDir, repeatTimes=20, save=saveIndEXPResults)
 
 # KRuns clustering
-KRuns = runExp(tracks, cluster_kRuns, kRuns_fileName, saveDir, repeatTimes=1, save=saveIndEXPResults,
+KRuns = runExp(tracks, cluster_kRuns, kRuns_fileName, saveDir, repeatTimes=20, save=saveIndEXPResults,
                old_FNMTF_thresh=0.1, thresh=0.8, stopPoint=0, old_FNMTF_rep_count=5)
 
 # KRuns + Split clustering
-KRuns_Split = runExp(tracks, cluster_kRuns_Split, kRuns_split_fileName, saveDir, repeatTimes=1, save=saveIndEXPResults,
+KRuns_Split = runExp(tracks, cluster_kRuns_Split, kRuns_split_fileName, saveDir, repeatTimes=20, save=saveIndEXPResults,
                      old_FNMTF_thresh=0.1, thresh=0.9, stopPoint=0, old_FNMTF_rep_count=5, diffThresh=25,
                      minTksInCluster=5, tksOutMinThresh=0.5)
 

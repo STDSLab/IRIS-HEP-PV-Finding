@@ -660,13 +660,13 @@ def loadFile(fileName):
         return pickle.load(handle)
 
 
-def saveEventResultsToExcel(all, core, saveLoc):
-    writer = pd.ExcelWriter(saveLoc)
-
-    for eventId in all.keys():
-        allData = getResultsPerEvent(all[eventId])
-        coreData = getResultsPerEvent(core[eventId])
-        allData.to_excel(writer, sheet_name=f'allTracks_event={eventId}')
-        coreData.to_excel(writer, sheet_name=f'coreTracks_event={eventId}')
-
-    writer.close()
+# def saveEventResultsToExcel(all, core, saveLoc):
+#     writer = pd.ExcelWriter(saveLoc)
+#
+#     for eventId in all.keys():
+#         allData = getResultsPerEvent(all[eventId])
+#         coreData = getResultsPerEvent(core[eventId])
+#         allData.to_excel(writer, sheet_name=f'allTracks_event={eventId}')
+#         coreData.to_excel(writer, sheet_name=f'coreTracks_event={eventId}')
+#
+#     writer.close()
