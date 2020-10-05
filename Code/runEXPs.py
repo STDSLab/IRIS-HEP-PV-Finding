@@ -42,7 +42,7 @@ compiledTotalResultsPlot_fileName = ''
 compiledByPVTypePlot_fileName = ''
 
 print('loading events...')
-tracks = loadAndPrepareAllEvents(dataDir, eventFile, eventsToLoad=1).sort_values(by='zip')
+tracks = loadAndPrepareAllEvents(dataDir, eventFile).sort_values(by='zip')
 print('finished loading events')
 
 # kMeans clustering
